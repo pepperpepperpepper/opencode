@@ -15,7 +15,14 @@
     },
     "huggingface": {
       "models": {
-        "Qwen/Qwen3-235B-A22B-Instruct-2507:fireworks-ai": {}
+        "Qwen/Qwen3-235B-A22B-Instruct-2507:fireworks-ai": {},
+        "Qwen/Qwen3-Coder-480B-A35B-Instruct:fireworks-ai": {},
+        "Qwen/Qwen3-32B:fireworks-ai": {},
+        "Qwen/Qwen3-8B:fireworks-ai": {},
+        "Qwen/Qwen3-14B:fireworks-ai": {},
+        "Qwen/Qwen3-4B:fireworks-ai": {},
+        "Qwen/Qwen3-1.7B:fireworks-ai": {},
+        "Qwen/Qwen3-0.6B:fireworks-ai": {}
       }
     }
   },
