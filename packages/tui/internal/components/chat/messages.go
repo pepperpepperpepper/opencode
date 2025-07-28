@@ -312,6 +312,9 @@ func (m *messagesComponent) renderView() tea.Cmd {
 						if part.Synthetic {
 							continue
 						}
+						if part.Text == "" {
+							continue
+						}
 						remainingParts := message.Parts[partIndex+1:]
 						fileParts := make([]opencode.FilePart, 0)
 						for _, part := range remainingParts {
@@ -394,6 +397,9 @@ func (m *messagesComponent) renderView() tea.Cmd {
 					switch part := p.(type) {
 					case opencode.TextPart:
 						if reverted {
+							continue
+						}
+						if part.Text == "" {
 							continue
 						}
 						hasTextPart = true
