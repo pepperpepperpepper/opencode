@@ -1073,19 +1073,6 @@ func (m *messagesComponent) RedoLastMessage() (tea.Model, tea.Cmd) {
 	}
 }
 
-			},
-		)
-		if err != nil {
-			slog.Error("Failed to redo message", "error", err)
-			return toast.NewErrorToast("Failed to redo message")
-		}
-		if response == nil {
-			return toast.NewErrorToast("Failed to redo message")
-		}
-		return app.MessageRevertedMsg{Session: *response, Message: revertedMessage}
-	}
-}
-
 func NewMessagesComponent(app *app.App) MessagesComponent {
 	vp := viewport.New()
 	vp.KeyMap = viewport.KeyMap{}
