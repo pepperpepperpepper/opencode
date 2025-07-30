@@ -39,5 +39,9 @@
     "protobufjs",
     "sharp"
   ],
-  "patchedDependencies": {}
+  "patchedDependencies": {},
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "0.2.16",
+    "ai": "4.3.19"
+  }
 }
