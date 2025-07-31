@@ -12,12 +12,6 @@ export const BashTool = Tool.define("bash", {
   parameters: z.object({
     command: z.string().describe("The command to execute"),
     timeout: z.number().min(0).max(MAX_TIMEOUT).describe("Optional timeout in milliseconds").optional(),
-    description: z
-      .string()
-      .describe(
-        "Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'",
-      )
-      .optional(),
   }),
   async execute(params, ctx) {
     const timeout = Math.min(params.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT)
@@ -41,7 +35,6 @@ export const BashTool = Tool.define("bash", {
         stderr,
         stdout,
         exit: process.exitCode,
-        description: params.description,
       },
       output: [`<stdout>`, stdout ?? "", `</stdout>`, `<stderr>`, stderr ?? "", `</stderr>`].join("\n"),
     }
