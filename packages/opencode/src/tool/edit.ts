@@ -18,8 +18,13 @@ export const EditTool = Tool.define("edit", {
   description: DESCRIPTION,
   parameters: z.object({
     filePath: z.string().describe("The absolute path to the file to modify"),
-    oldString: z.string().describe("The text to replace"),
-    newString: z.string().describe("The text to replace it with (must be different from oldString)"),
+    oldString: z
+      .string()
+      .optional()
+      .describe("The text to replace (optional - if not provided, newString will be appended to the file)"),
+    newString: z
+      .string()
+      .describe("The text to replace it with (must be different from oldString when oldString is provided)"),
     replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
   }),
   async execute(params, ctx) {
@@ -27,7 +32,7 @@ export const EditTool = Tool.define("edit", {
       throw new Error("filePath is required")
     }
 
-    if (params.oldString === params.newString) {
+    if (params.oldString !== undefined && params.oldString === params.newString) {
       throw new Error("oldString and newString must be different")
     }
 
@@ -48,7 +53,7 @@ export const EditTool = Tool.define("edit", {
     let contentOld = ""
     let contentNew = ""
     await (async () => {
-      if (params.oldString === "") {
+      if (params.oldString === undefined || params.oldString === "") {
         contentNew = params.newString
         await Bun.write(filepath, params.newString)
         await Bus.publish(File.Event.Edited, {
@@ -64,7 +69,10 @@ export const EditTool = Tool.define("edit", {
       await FileTime.assert(ctx.sessionID, filepath)
       contentOld = await file.text()
 
-      contentNew = replace(contentOld, params.oldString, params.newString, params.replaceAll)
+      contentNew =
+        params.oldString !== undefined
+          ? replace(contentOld, params.oldString, params.newString, params.replaceAll)
+          : contentOld + params.newString
       await file.write(contentNew)
       await Bus.publish(File.Event.Edited, {
         file: filepath,
