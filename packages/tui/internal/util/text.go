@@ -50,3 +50,34 @@ func GetMarkdownContainerFrame() int {
 	// Markdown containers use the same styling as message containers
 	return GetMessageContainerFrame()
 }
+
+// ExtractURLs finds all URLs in a text string and returns them with their positions
+func ExtractURLs(text string) []struct {
+	URL   string
+	Start int
+	End   int
+} {
+	// URL regex pattern
+	urlRegex := regexp.MustCompile(`https?://[^\s]+`)
+	matches := urlRegex.FindAllStringIndex(text, -1)
+
+	var urls []struct {
+		URL   string
+		Start int
+		End   int
+	}
+
+	for _, match := range matches {
+		urls = append(urls, struct {
+			URL   string
+			Start int
+			End   int
+		}{
+			URL:   text[match[0]:match[1]],
+			Start: match[0],
+			End:   match[1],
+		})
+	}
+
+	return urls
+}

@@ -783,18 +783,14 @@ export const GithubRunCommand = cmd({
       async function pushToNewBranch(summary: string, branch: string) {
         console.log("Pushing to new branch...")
         await $`git add .`
-        await $`git commit -m "${summary}
-  
-Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
+        await $`git commit -m "${summary}"`
         await $`git push -u origin ${branch}`
       }
 
       async function pushToLocalBranch(summary: string) {
         console.log("Pushing to local branch...")
         await $`git add .`
-        await $`git commit -m "${summary}
-  
-Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
+        await $`git commit -m "${summary}"`
         await $`git push`
       }
 
@@ -804,9 +800,7 @@ Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
         const remoteBranch = pr.headRefName
 
         await $`git add .`
-        await $`git commit -m "${summary}
-  
-Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
+        await $`git commit -m "${summary}"`
         await $`git push fork HEAD:${remoteBranch}`
       }
 
