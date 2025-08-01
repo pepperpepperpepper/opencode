@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 
@@ -53,6 +54,15 @@ type messagesComponent struct {
 	partCount       int
 	lineCount       int
 	selection       *selection
+	// Track message boundaries for URL detection
+	messageBounds []messageBoundary
+}
+
+type messageBoundary struct {
+	startLine int
+	endLine   int
+	message   app.Message
+	textPart  *opencode.TextPart
 }
 
 type selection struct {
@@ -93,6 +103,195 @@ func (s selection) coords(offset int) *selection {
 
 type ToggleToolDetailsMsg struct{}
 
+// findURLAtPosition finds a URL at the given cursor position by mapping to original message content
+func (m *messagesComponent) findURLAtPosition(x, y int) string {
+	slog.Info("findURLAtPosition", "x", x, "y", y, "message_bounds_count", len(m.messageBounds))
+	fmt.Fprintf(os.Stderr, "DEBUG: === findURLAtPosition called with x=%d, y=%d ===\n", x, y)
+	fmt.Fprintf(os.Stderr, "DEBUG: Viewport state: YOffset=%d, Height=%d, Visible lines=%d-%d\n",
+		m.viewport.YOffset, m.viewport.Height(), m.viewport.YOffset, m.viewport.YOffset+m.viewport.Height())
+
+	// Find which message contains the clicked position
+	var targetMessage *app.Message
+	var targetTextPart *opencode.TextPart
+
+	// Log all boundaries for debugging
+	fmt.Fprintf(os.Stderr, "DEBUG: All URL boundaries:\n")
+	for i, boundary := range m.messageBounds {
+		fmt.Fprintf(os.Stderr, "DEBUG:   Boundary %d: start=%d, end=%d (height=%d)\n",
+			i, boundary.startLine, boundary.endLine, boundary.endLine-boundary.startLine)
+	}
+
+	// Try with absolute coordinates first
+	fmt.Fprintf(os.Stderr, "DEBUG: Trying absolute coordinate approach...\n")
+	for _, boundary := range m.messageBounds {
+		fmt.Fprintf(os.Stderr, "DEBUG: findURLAtPosition checking boundary (absolute) y=%d against start=%d end=%d\n", y, boundary.startLine, boundary.endLine)
+		fmt.Fprintf(os.Stderr, "DEBUG:   Condition: %d >= %d && %d < %d = %v\n",
+			y, boundary.startLine, y, boundary.endLine, y >= boundary.startLine && y < boundary.endLine)
+		if y >= boundary.startLine && y < boundary.endLine {
+			targetMessage = &boundary.message
+			targetTextPart = boundary.textPart
+			fmt.Fprintf(os.Stderr, "DEBUG: findURLAtPosition found boundary (absolute) start=%d end=%d\n", boundary.startLine, boundary.endLine)
+			break
+		}
+	}
+
+	// If not found with absolute coordinates, try with viewport-relative coordinates
+	if targetMessage == nil {
+		fmt.Fprintf(os.Stderr, "DEBUG: Trying viewport-relative coordinate approach...\n")
+		viewportRelativeY := y - m.viewport.YOffset
+		fmt.Fprintf(os.Stderr, "DEBUG: findURLAtPosition trying viewport-relative y=%d, adjustedY=%d\n", y, viewportRelativeY)
+		if viewportRelativeY >= 0 {
+			for _, boundary := range m.messageBounds {
+				fmt.Fprintf(os.Stderr, "DEBUG: findURLAtPosition checking boundary (viewport-relative) adjustedY=%d against start=%d end=%d\n", viewportRelativeY, boundary.startLine, boundary.endLine)
+				fmt.Fprintf(os.Stderr, "DEBUG:   Condition: %d >= %d && %d < %d = %v\n",
+					viewportRelativeY, boundary.startLine, viewportRelativeY, boundary.endLine, viewportRelativeY >= boundary.startLine && viewportRelativeY < boundary.endLine)
+				if viewportRelativeY >= boundary.startLine && viewportRelativeY < boundary.endLine {
+					targetMessage = &boundary.message
+					targetTextPart = boundary.textPart
+					fmt.Fprintf(os.Stderr, "DEBUG: findURLAtPosition found boundary (viewport-relative) start=%d end=%d, adjustedY=%d\n", boundary.startLine, boundary.endLine, viewportRelativeY)
+					break
+				}
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "DEBUG: viewportRelativeY=%d is negative, skipping\n", viewportRelativeY)
+		}
+	}
+
+	if targetMessage == nil || targetTextPart == nil {
+		slog.Info("findURLAtPosition", "result", "no_message_found_at_position")
+		return ""
+	}
+
+	// Get the original text content
+	originalText := targetTextPart.Text
+	slog.Info("findURLAtPosition", "original_text", originalText)
+
+	// Extract URLs from the original text
+	urls := util.ExtractURLs(originalText)
+	if len(urls) == 0 {
+		slog.Info("findURLAtPosition", "result", "no_urls_in_original_text")
+		return ""
+	}
+
+	// For now, return the first URL found in the message
+	// This is a simplified approach - we could improve by mapping coordinates more precisely
+	slog.Info("findURLAtPosition", "urls_found", urls, "returning_first", urls[0])
+	return urls[0]
+}
+
+// getRawTextCoordinate converts a coordinate in rendered text (with ANSI codes)
+// to a coordinate in raw text (without ANSI codes)
+func (m *messagesComponent) getRawTextCoordinate(renderedLine, rawLine string, renderedX int) int {
+	slog.Info("getRawTextCoordinate",
+		"renderedLine", renderedLine,
+		"rawLine", rawLine,
+		"renderedX", renderedX,
+		"renderedLen", len(renderedLine),
+		"rawLen", len(rawLine))
+
+	if renderedX <= 0 {
+		slog.Info("getRawTextCoordinate", "result", "early_return_0", "reason", "renderedX <= 0")
+		return 0
+	}
+	if renderedX >= len(renderedLine) {
+		slog.Info("getRawTextCoordinate", "result", "early_return_rawLen", "reason", "renderedX >= len(renderedLine)", "rawLen", len(rawLine))
+		return len(rawLine)
+	}
+
+	// Use the ansi package to properly parse ANSI sequences
+	// Count visible characters (non-ANSI) up to the renderedX position
+	rawPos := 0
+	i := 0
+
+	for i < len(renderedLine) && i < renderedX {
+		if renderedLine[i] == '\x1b' {
+			// Found start of ANSI escape sequence
+			// Skip the entire escape sequence
+			seqLen := m.getANSISequenceLength(renderedLine[i:])
+			i += seqLen
+			continue
+		}
+
+		// Count visible character
+		// slog.Info("getRawTextCoordinate", "counting_char", "position", i, "char", string(renderedLine[i]), "raw_pos", rawPos+1)
+		rawPos++
+		i++
+	}
+
+	// Don't exceed the raw line length
+	if rawPos > len(rawLine) {
+		slog.Info("getRawTextCoordinate", "result", "clamped_to_rawLen", "rawPos", rawPos, "rawLen", len(rawLine))
+		return len(rawLine)
+	}
+
+	slog.Info("getRawTextCoordinate", "result", "final_rawPos", "rawPos", rawPos)
+	return rawPos
+}
+
+// getANSISequenceLength returns the length of an ANSI escape sequence starting at the given position
+func (m *messagesComponent) getANSISequenceLength(s string) int {
+	if len(s) == 0 || s[0] != '\x1b' {
+		return 0
+	}
+
+	// Minimum ANSI sequence is "\x1b[" (2 chars)
+	if len(s) < 2 || s[1] != '[' {
+		// Could be a different type of escape sequence, skip just the ESC char
+		return 1
+	}
+
+	// Find the terminator character (any printable ASCII character from '@' to '~')
+	for i := 2; i < len(s); i++ {
+		c := s[i]
+		if c >= '@' && c <= '~' {
+			// Found terminator, return total length
+			// slog.Info("getANSISequenceLength", "found_terminator", "position", i, "char", string(c), "length", i+1)
+			return i + 1
+		}
+	}
+
+	// If we reach here, the sequence is incomplete or invalid
+	// Skip the ESC and '[' characters we know about
+	// slog.Info("getANSISequenceLength", "incomplete_sequence", "default_length", 2)
+	return 2
+}
+
+// buildMessageBounds builds the mapping between final rendered lines and original messages
+func (m *messagesComponent) buildMessageBounds(blocks, final []string) {
+	m.messageBounds = []messageBoundary{}
+	currentLine := 0
+	messageIndex := 0
+
+	for _, block := range blocks {
+		blockHeight := lipgloss.Height(block)
+
+		// Find the corresponding message for this block
+		if messageIndex < len(m.app.Messages) {
+			message := m.app.Messages[messageIndex]
+
+			// Find text parts in this message
+			for _, part := range message.Parts {
+				if textPart, ok := part.(opencode.TextPart); ok && !textPart.Synthetic && textPart.Text != "" {
+					// Check if this text part contains URLs
+					urls := util.ExtractURLs(textPart.Text)
+					if len(urls) > 0 {
+						// Add boundary for this text part
+						m.messageBounds = append(m.messageBounds, messageBoundary{
+							startLine: currentLine,
+							endLine:   currentLine + blockHeight,
+							message:   message,
+							textPart:  &textPart,
+						})
+						fmt.Fprintf(os.Stderr, "DEBUG: buildMessageBounds added boundary start=%d end=%d urls=%v\n", currentLine, currentLine+blockHeight, urls)
+					}
+				}
+			}
+		}
+
+		currentLine += blockHeight + 1 // +1 for the empty line between blocks
+		messageIndex++
+	}
+}
 func (m *messagesComponent) Init() tea.Cmd {
 	return tea.Batch(m.viewport.Init())
 }
@@ -103,15 +302,46 @@ func (m *messagesComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
+		headerHeight := lipgloss.Height(m.renderHeader())
+		// Account for header and the newline separator
+		offset := headerHeight + 1
+		var contentY int
+
+		fmt.Fprintf(os.Stderr, "DEBUG: === MOUSE CLICK ANALYSIS ===\n")
+		fmt.Fprintf(os.Stderr, "DEBUG: Raw mouse event: X=%d, Y=%d, Button=%d\n", msg.X, msg.Y, msg.Button)
+		fmt.Fprintf(os.Stderr, "DEBUG: Header height: %d, Total offset: %d\n", headerHeight, offset)
+		fmt.Fprintf(os.Stderr, "DEBUG: Viewport: YOffset=%d, Height=%d\n", m.viewport.YOffset, m.viewport.Height())
+		fmt.Fprintf(os.Stderr, "DEBUG: Content area starts at screen line: %d\n", offset)
+		fmt.Fprintf(os.Stderr, "DEBUG: Content area ends at screen line: %d\n", offset+m.viewport.Height())
+
+		// Calculate content Y coordinate: screen position minus header offset
+		// The URL boundaries are stored in content-relative coordinates (relative to the content start)
+		if msg.Y < offset {
+			// Click is in the header area, ignore
+			contentY = -1
+			fmt.Fprintf(os.Stderr, "DEBUG: Click is in HEADER area (screenY=%d < offset=%d)\n", msg.Y, offset)
+		} else {
+			// Click is in the content area
+			// Convert screen coordinates to content-relative coordinates
+			// URL boundaries are stored in content-relative coordinates (positions within the content array)
+			viewportRelativeY := msg.Y - offset
+			contentY = viewportRelativeY + m.viewport.YOffset
+			fmt.Fprintf(os.Stderr, "DEBUG: Click is in CONTENT area\n")
+			fmt.Fprintf(os.Stderr, "DEBUG: Screen position %d -> Viewport-relative position %d\n", msg.Y, viewportRelativeY)
+			fmt.Fprintf(os.Stderr, "DEBUG: Viewport YOffset: %d, Content-relative position: %d\n", m.viewport.YOffset, contentY)
+
+			// Use content-relative coordinates to match URL boundary coordinate system
+			// contentY is already in content-relative coordinates (absolute position in content)
+		}
+
+		fmt.Fprintf(os.Stderr, "DEBUG: Final contentY for URL search: %d\n", contentY)
+		fmt.Fprintf(os.Stderr, "DEBUG: === END MOUSE CLICK ANALYSIS ===\n")
+
 		if msg.Button == tea.MouseLeft {
-			headerHeight := lipgloss.Height(m.renderHeader())
-			// Account for header and the newline separator
-			offset := headerHeight + 1
 			slog.Info("mouse", "x", msg.X, "y", msg.Y, "offset", m.viewport.YOffset, "offset", offset)
-			y := (msg.Y - offset) + m.viewport.YOffset
-			if y > 0 {
+			if contentY > 0 {
 				m.selection = &selection{
-					startY: y,
+					startY: contentY,
 					startX: msg.X,
 					endY:   -1,
 					endX:   -1,
@@ -121,6 +351,24 @@ func (m *messagesComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.renderView()
 			}
 		} else if msg.Button == tea.MouseRight {
+			// First check if right-clicking on a URL
+			if contentY >= 0 {
+				// The message boundaries are stored in absolute content coordinates
+				url := m.findURLAtPosition(msg.X, contentY)
+				slog.Info("right-click detected", "x", msg.X, "y", msg.Y, "contentY", contentY, "url_found", url != "", "url", url)
+
+				if url != "" {
+					return m, func() tea.Msg {
+						return app.URLClickedMsg{
+							URL: url,
+							X:   msg.X,
+							Y:   msg.Y,
+						}
+					}
+				}
+			}
+
+			// Fall back to existing selection copy behavior
 			if m.selection != nil && len(m.clipboard) > 0 {
 				content := strings.Join(m.clipboard, "\n")
 				m.selection = nil
@@ -615,11 +863,49 @@ func (m *messagesComponent) renderView() tea.Cmd {
 
 		final := []string{}
 		clipboard := []string{}
+		m.messageBounds = []messageBoundary{} // Reset message boundaries
 		var selection *selection
 		if m.selection != nil {
 			selection = m.selection.coords(0)
 		}
+
+		// Build message boundaries while processing blocks
+		messageIndex := 0
 		for _, block := range blocks {
+			// Add message boundary for this block if it corresponds to a message with URLs
+			if messageIndex < len(m.app.Messages) {
+				message := m.app.Messages[messageIndex]
+				fmt.Fprintf(os.Stderr, "DEBUG: Processing message %d with %d parts\n", messageIndex, len(message.Parts))
+				for partIdx, part := range message.Parts {
+					if textPart, ok := part.(opencode.TextPart); ok && !textPart.Synthetic && textPart.Text != "" {
+						urls := util.ExtractURLs(textPart.Text)
+						fmt.Fprintf(os.Stderr, "DEBUG: Message %d part %d: text length=%d, urls found=%d\n", messageIndex, partIdx, len(textPart.Text), len(urls))
+						if len(urls) > 0 {
+							startLine := len(final)
+							blockHeight := lipgloss.Height(block)
+							fmt.Fprintf(os.Stderr, "DEBUG: === CREATING URL BOUNDARY ===\n")
+							fmt.Fprintf(os.Stderr, "DEBUG: Message %d part %d has %d URLs\n", messageIndex, partIdx, len(urls))
+							fmt.Fprintf(os.Stderr, "DEBUG: Current 'final' array length: %d\n", len(final))
+							fmt.Fprintf(os.Stderr, "DEBUG: Block height: %d lines\n", blockHeight)
+							fmt.Fprintf(os.Stderr, "DEBUG: Start line: %d, End line: %d\n", startLine, startLine+blockHeight)
+							fmt.Fprintf(os.Stderr, "DEBUG: Viewport YOffset during boundary creation: %d\n", m.viewport.YOffset)
+							fmt.Fprintf(os.Stderr, "DEBUG: URLs found: %v\n", urls)
+							fmt.Fprintf(os.Stderr, "DEBUG: Boundary coordinate system: %s\n",
+								"UNKNOWN - need to determine if this is absolute or viewport-relative")
+							fmt.Fprintf(os.Stderr, "DEBUG: === END URL BOUNDARY CREATION ===\n")
+
+							m.messageBounds = append(m.messageBounds, messageBoundary{
+								startLine: startLine,
+								endLine:   startLine + blockHeight,
+								message:   message,
+								textPart:  &textPart,
+							})
+							fmt.Fprintf(os.Stderr, "DEBUG: Added boundary start=%d end=%d urls=%v\n", startLine, startLine+blockHeight, urls)
+						}
+					}
+				}
+			}
+			messageIndex++
 			lines := strings.Split(block, "\n")
 			for index, line := range lines {
 				if selection == nil || index == 0 || index == len(lines)-1 {
@@ -659,6 +945,10 @@ func (m *messagesComponent) renderView() tea.Cmd {
 			final = append(final, "")
 		}
 		content := "\n" + strings.Join(final, "\n")
+		fmt.Fprintf(os.Stderr, "DEBUG: Final content length: %d lines, message bounds: %d\n", len(final), len(m.messageBounds))
+		for i, bound := range m.messageBounds {
+			fmt.Fprintf(os.Stderr, "DEBUG: Boundary %d: start=%d, end=%d\n", i, bound.startLine, bound.endLine)
+		}
 		viewport.SetHeight(m.height - lipgloss.Height(header))
 		viewport.SetContent(content)
 		if tail {
