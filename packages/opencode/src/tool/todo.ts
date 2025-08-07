@@ -7,7 +7,7 @@ const TodoInfo = z.object({
   content: z.string().min(1).describe("Brief description of the task"),
   status: z.enum(["pending", "in_progress", "completed", "cancelled"]).describe("Current status of the task"),
   priority: z.enum(["high", "medium", "low"]).describe("Priority level of the task"),
-  id: z.string().describe("Unique identifier for the todo item"),
+  id: z.union([z.string(), z.number()]).transform(String).describe("Unique identifier for the todo item"),
 })
 type TodoInfo = z.infer<typeof TodoInfo>
 

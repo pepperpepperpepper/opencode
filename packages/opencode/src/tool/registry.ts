@@ -2,7 +2,7 @@ import z from "zod"
 import { BashTool } from "./bash"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
-import { GrepTool } from "./grep"
+import { TextSearchTool } from "./text_search"
 import { ListTool } from "./ls"
 import { PatchTool } from "./patch"
 import { ReadTool } from "./read"
@@ -17,7 +17,7 @@ export namespace ToolRegistry {
     EditTool,
     WebFetchTool,
     GlobTool,
-    GrepTool,
+    TextSearchTool,
     ListTool,
     PatchTool,
     ReadTool,

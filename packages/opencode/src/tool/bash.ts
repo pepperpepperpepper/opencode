@@ -10,8 +10,8 @@ const MAX_TIMEOUT = 10 * 60 * 1000
 export const BashTool = Tool.define("bash", {
   description: DESCRIPTION,
   parameters: z.object({
-    command: z.string().describe("The command to execute"),
-    timeout: z.number().min(0).max(MAX_TIMEOUT).describe("Optional timeout in milliseconds").optional(),
+    command: z.string().describe("Command to run"),
+    timeout: z.number().describe("Timeout in milliseconds (optional)").optional(),
   }),
   async execute(params, ctx) {
     const timeout = Math.min(params.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT)

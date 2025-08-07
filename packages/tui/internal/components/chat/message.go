@@ -593,7 +593,7 @@ func renderToolAction(name string) string {
 		return "Fetching from the web..."
 	case "glob":
 		return "Finding files..."
-	case "grep":
+	case "text_search":
 		return "Searching content..."
 	case "list":
 		return "Listing directory..."

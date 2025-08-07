@@ -56,7 +56,7 @@ const AgentCreateCommand = cmd({
         "edit",
         "list",
         "glob",
-        "grep",
+        "text_search",
         "webfetch",
         "task",
         "todowrite",

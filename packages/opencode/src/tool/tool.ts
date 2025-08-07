@@ -13,7 +13,7 @@ export namespace Tool {
   export interface Info<Parameters extends StandardSchemaV1 = StandardSchemaV1, M extends Metadata = Metadata> {
     id: string
     init: () => Promise<{
-      description: string
+      description?: string
       parameters: Parameters
       execute(
         args: StandardSchemaV1.InferOutput<Parameters>,

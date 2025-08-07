@@ -339,7 +339,7 @@
     }
   }
 
-  [data-part-type="tool-grep"] {
+  [data-part-type="tool-text_search"] {
     &:not(:has([data-part-tool-args])) > [data-section="content"] > [data-part-tool-body] {
       gap: 0.5rem;
     }

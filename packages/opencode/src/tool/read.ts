@@ -13,9 +13,9 @@ const MAX_LINE_LENGTH = 2000
 export const ReadTool = Tool.define("read", {
   description: DESCRIPTION,
   parameters: z.object({
-    filePath: z.string().describe("The path to the file to read"),
-    offset: z.coerce.number().describe("The line number to start reading from (0-based)").optional(),
-    limit: z.coerce.number().describe("The number of lines to read (defaults to 2000)").optional(),
+    filePath: z.string().describe("File to read"),
+    offset: z.number().describe("Line number to start from (optional)").optional(),
+    limit: z.number().describe("Number of lines to read (optional)").optional(),
   }),
   async execute(params, ctx) {
     let filePath = params.filePath

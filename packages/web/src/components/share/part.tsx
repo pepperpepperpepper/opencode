@@ -101,7 +101,7 @@ export function Part(props: PartProps) {
               <Match when={props.part.type === "tool" && props.part.tool === "read"}>
                 <IconDocument width={18} height={18} />
               </Match>
-              <Match when={props.part.type === "tool" && props.part.tool === "grep"}>
+              <Match when={props.part.type === "tool" && props.part.tool === "text_search"}>
                 <IconDocumentMagnifyingGlass width={18} height={18} />
               </Match>
               <Match when={props.part.type === "tool" && props.part.tool === "list"}>
@@ -173,7 +173,7 @@ export function Part(props: PartProps) {
             <>
               <div data-component="tool" data-tool={props.part.tool}>
                 <Switch>
-                  <Match when={props.part.tool === "grep"}>
+                  <Match when={props.part.tool === "text_search"}>
                     <GrepTool
                       message={props.message}
                       id={props.part.id}
@@ -653,9 +653,7 @@ function TaskTool(props: ToolProps) {
         <span data-slot="name">Task</span>
         <span data-slot="target">{props.state.input.description}</span>
       </div>
-      <div data-component="tool-input">
-        &ldquo;{props.state.input.prompt}&rdquo;
-      </div>
+      <div data-component="tool-input">&ldquo;{props.state.input.prompt}&rdquo;</div>
       <ResultsButton showCopy="Show output" hideCopy="Hide output">
         <div data-component="tool-output">
           <ContentMarkdown expand text={props.state.output} />

@@ -240,7 +240,7 @@
     &[data-tool="edit"],
     &[data-tool="list"],
     &[data-tool="glob"],
-    &[data-tool="grep"],
+    &[data-tool="text_search"],
     &[data-tool="write"],
     &[data-tool="webfetch"] {
       [data-component="tool-result"] {

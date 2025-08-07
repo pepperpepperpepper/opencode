@@ -17,15 +17,13 @@ import { FileTime } from "../file/time"
 export const EditTool = Tool.define("edit", {
   description: DESCRIPTION,
   parameters: z.object({
-    filePath: z.string().describe("The absolute path to the file to modify"),
+    filePath: z.string().describe("File to edit"),
     oldString: z
       .string()
       .optional()
-      .describe("The text to replace (optional - if not provided, newString will be appended to the file)"),
-    newString: z
-      .string()
-      .describe("The text to replace it with (must be different from oldString when oldString is provided)"),
-    replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
+      .describe("Text to replace (optional - if not provided, new text will be appended)"),
+    newString: z.string().describe("New text to add"),
+    replaceAll: z.boolean().optional().describe("Replace all matches (optional, defaults to false)"),
   }),
   async execute(params, ctx) {
     if (!params.filePath) {
