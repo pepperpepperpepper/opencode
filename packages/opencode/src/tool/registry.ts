@@ -32,35 +32,32 @@ export namespace ToolRegistry {
   }
 
   export async function tools(providerID: string, _modelID: string) {
-    const result = await Promise.all(
-      ALL.map(async (t) => ({
-        id: t.id,
-        ...(await t.init()),
-      })),
+    const base = await Promise.all(
+      ALL.map(async (t) => {
+        const init = await t.init()
+        return {
+          id: t.id,
+          ...init,
+          parameters: addDescriptionParameter(init.parameters),
+        }
+      }),
     )
 
-    if (providerID === "openai") {
-      return result.map((t) => ({
-        ...t,
-        parameters: optionalToNullable(t.parameters),
-      }))
-    }
-
     if (providerID === "azure") {
-      return result.map((t) => ({
+      return base.map((t) => ({
         ...t,
         parameters: optionalToNullable(t.parameters),
       }))
     }
 
     if (providerID === "google") {
-      return result.map((t) => ({
+      return base.map((t) => ({
         ...t,
         parameters: sanitizeGeminiParameters(t.parameters),
       }))
     }
 
-    return result
+    return base
   }
 
   export function enabled(_providerID: string, modelID: string): Record<string, boolean> {
@@ -77,6 +74,15 @@ export namespace ToolRegistry {
       }
     }
     return {}
+  }
+
+  function addDescriptionParameter(schema: z.ZodTypeAny): z.ZodTypeAny {
+    if (schema instanceof z.ZodObject) {
+      return (schema as z.ZodObject<any>).extend({
+        description: z.string().describe("Optional short description").optional(),
+      })
+    }
+    return schema
   }
 
   function sanitizeGeminiParameters(schema: z.ZodTypeAny, visited = new Set()): z.ZodTypeAny {
