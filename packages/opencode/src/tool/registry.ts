@@ -77,10 +77,19 @@ export namespace ToolRegistry {
   }
 
   function addDescriptionParameter(schema: z.ZodTypeAny): z.ZodTypeAny {
-    if (schema instanceof z.ZodObject) {
-      return (schema as z.ZodObject<any>).extend({
-        description: z.string().describe("Optional short description").optional(),
-      })
+    try {
+      if (schema instanceof z.ZodObject) {
+        const shape = schema.shape
+        // Don't add description if it already exists
+        if ("description" in shape) {
+          return schema
+        }
+        return (schema as z.ZodObject<any>).extend({
+          description: z.string().describe("Optional short description").optional(),
+        })
+      }
+    } catch (error) {
+      console.warn("Failed to add description parameter:", error)
     }
     return schema
   }
