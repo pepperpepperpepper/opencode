@@ -691,7 +691,7 @@ export namespace Session {
     await updateMessage(assistantMsg)
     const tools: Record<string, AITool> = {}
 
-    const processor = createProcessor(assistantMsg, model.info)
+    const processor = createProcessor(assistantMsg, model.info, input.providerID, input.modelID, tools)
 
     const enabledTools = pipe(
       mode.tools,
@@ -706,29 +706,68 @@ export namespace Session {
         inputSchema: item.parameters as ZodSchema,
         async execute(args, options) {
           await processor.track(options.toolCallId)
-          const result = await item.execute(args, {
-            sessionID: input.sessionID,
-            abort: abort.signal,
-            messageID: assistantMsg.id,
-            metadata: async (val) => {
-              const match = processor.partFromToolCall(options.toolCallId)
-              if (match && match.state.status === "running") {
-                await updatePart({
-                  ...match,
-                  state: {
-                    title: val.title,
-                    metadata: val.metadata,
-                    status: "running",
-                    input: args,
-                    time: {
-                      start: Date.now(),
+          try {
+            log.info("tool-execution-start", {
+              toolId: item.id,
+              toolCallId: options.toolCallId,
+              args: JSON.stringify(args),
+              sessionID: input.sessionID,
+              messageID: assistantMsg.id,
+            })
+
+            const result = await item.execute(args, {
+              sessionID: input.sessionID,
+              abort: abort.signal,
+              messageID: assistantMsg.id,
+              metadata: async (val) => {
+                const match = processor.partFromToolCall(options.toolCallId)
+                if (match && match.state.status === "running") {
+                  await updatePart({
+                    ...match,
+                    state: {
+                      title: val.title,
+                      metadata: val.metadata,
+                      status: "running",
+                      input: args,
+                      time: {
+                        start: Date.now(),
+                      },
                     },
-                  },
-                })
-              }
-            },
-          })
-          return result
+                  })
+                }
+              },
+            })
+
+            log.info("tool-execution-success", {
+              toolId: item.id,
+              toolCallId: options.toolCallId,
+              sessionID: input.sessionID,
+              outputLength: result.output.length,
+            })
+
+            return result
+          } catch (toolError) {
+            log.error("tool-execution-failed", {
+              toolId: item.id,
+              toolCallId: options.toolCallId,
+              args: JSON.stringify(args),
+              sessionID: input.sessionID,
+              messageID: assistantMsg.id,
+              error: {
+                name: toolError instanceof Error ? toolError.name : typeof toolError,
+                message: toolError instanceof Error ? toolError.message : JSON.stringify(toolError),
+                stack: toolError instanceof Error ? toolError.stack : undefined,
+              },
+            })
+
+            // Enhance the error with more context
+            const enhancedError = new Error(
+              `Tool execution failed for ${item.id}: ${toolError instanceof Error ? toolError.message : JSON.stringify(toolError)}`,
+            )
+            enhancedError.cause = toolError
+
+            throw enhancedError
+          }
         },
         toModelOutput(result) {
           return {
@@ -745,14 +784,46 @@ export namespace Session {
       if (!execute) continue
       item.execute = async (args, opts) => {
         await processor.track(opts.toolCallId)
-        const result = await execute(args, opts)
-        const output = result.content
-          .filter((x: any) => x.type === "text")
-          .map((x: any) => x.text)
-          .join("\n\n")
+        try {
+          log.info("mcp-tool-execution-start", {
+            toolName: key,
+            toolCallId: opts.toolCallId,
+            args: JSON.stringify(args),
+            sessionID: input.sessionID,
+          })
 
-        return {
-          output,
+          const result = await execute(args, opts)
+          const output = result.content
+            .filter((x: any) => x.type === "text")
+            .map((x: any) => x.text)
+            .join("\n\n")
+
+          log.info("mcp-tool-execution-success", {
+            toolName: key,
+            toolCallId: opts.toolCallId,
+            sessionID: input.sessionID,
+            outputLength: output.length,
+          })
+
+          return {
+            output,
+          }
+        } catch (mcpError) {
+          log.error("mcp-tool-execution-failed", {
+            toolName: key,
+            toolCallId: opts.toolCallId,
+            args: JSON.stringify(args),
+            sessionID: input.sessionID,
+            error: {
+              name: mcpError instanceof Error ? mcpError.name : typeof mcpError,
+              message: mcpError instanceof Error ? mcpError.message : JSON.stringify(mcpError),
+              stack: mcpError instanceof Error ? mcpError.stack : undefined,
+            },
+          })
+
+          throw new Error(
+            `MCP tool '${key}' failed: ${mcpError instanceof Error ? mcpError.message : JSON.stringify(mcpError)}`,
+          )
         }
       }
       item.toModelOutput = (result) => {
@@ -855,13 +926,24 @@ export namespace Session {
       return chat(unprocessed.input)
     }
     for (const item of queued) {
-      item.callback(result)
+      if (result) {
+        item.callback(result)
+      }
     }
     state().queued.delete(input.sessionID)
+    if (!result) {
+      throw new Error("No result generated from stream processing")
+    }
     return result
   }
 
-  function createProcessor(assistantMsg: MessageV2.Assistant, model: ModelsDev.Model) {
+  function createProcessor(
+    assistantMsg: MessageV2.Assistant,
+    model: ModelsDev.Model,
+    providerID: string,
+    modelID: string,
+    toolsForErrorHandling: any,
+  ) {
     const toolCalls: Record<string, MessageV2.ToolPart> = {}
     const snapshots: Record<string, string> = {}
     return {
@@ -961,12 +1043,26 @@ export namespace Session {
               case "tool-error": {
                 const match = toolCalls[value.toolCallId]
                 if (match && match.state.status === "running") {
+                  const errorDetails = {
+                    toolName: match.tool,
+                    toolCallId: value.toolCallId,
+                    input: value.input,
+                    error: value.error,
+                    errorType: typeof value.error,
+                    errorMessage: value.error instanceof Error ? value.error.message : JSON.stringify(value.error),
+                    errorStack: value.error instanceof Error ? value.error.stack : undefined,
+                    sessionID: assistantMsg.sessionID,
+                    messageID: assistantMsg.id,
+                  }
+
+                  log.error("tool-error-details", errorDetails)
+
                   await updatePart({
                     ...match,
                     state: {
                       status: "error",
                       input: value.input,
-                      error: (value.error as any).toString(),
+                      error: `Tool '${match.tool}' failed: ${errorDetails.errorMessage}`,
                       time: {
                         start: match.state.time.start,
                         end: Date.now(),
@@ -1062,9 +1158,55 @@ export namespace Session {
             }
           }
         } catch (e) {
-          log.error("", {
+          const errorDetails = {
             error: e,
-          })
+            errorType: typeof e,
+            errorMessage: e instanceof Error ? e.message : JSON.stringify(e),
+            errorStack: e instanceof Error ? e.stack : undefined,
+            errorName: e instanceof Error ? e.name : undefined,
+            sessionID: assistantMsg.sessionID,
+            messageID: assistantMsg.id,
+            providerID: providerID,
+            modelID: modelID,
+            timestamp: new Date().toISOString(),
+            toolsEnabled: Object.keys(toolsForErrorHandling),
+          }
+
+          // Enhanced logging for better debugging
+          log.error("session-error-enhanced", errorDetails)
+
+          // Check for specific AI SDK / function calling errors
+          if (e && typeof e === "object" && "type" in e && e.type === "invalid_request_error") {
+            const errorMessage =
+              e && typeof e === "object" && "message" in e ? String(e.message) : "AI SDK function calling failed"
+            log.error("ai-sdk-function-calling-error", {
+              ...errorDetails,
+              errorType: "AI_SDK_INVALID_REQUEST",
+              suggestion:
+                "This error typically occurs when the AI model fails to call a function/tool. Try simplifying your prompt or using a different model.",
+              originalError: e,
+            })
+
+            // Create a specific function calling error for better handling
+            assistantMsg.error = new MessageV2.FunctionCallingError({
+              providerID: providerID,
+              modelID: modelID,
+              message: errorMessage,
+              suggestion:
+                "Try simplifying your prompt or using a different model that better supports function calling",
+            }).toObject()
+            return
+          }
+
+          // Check for tool-related errors
+          if (e instanceof Error && e.message.includes("Tool execution failed")) {
+            log.error("tool-execution-error", {
+              ...errorDetails,
+              errorType: "TOOL_EXECUTION_FAILURE",
+              suggestion: "A specific tool failed to execute. Check the tool error details above for more information.",
+            })
+          }
+
           switch (true) {
             case e instanceof DOMException && e.name === "AbortError":
               assistantMsg.error = new MessageV2.AbortedError(
@@ -1087,10 +1229,38 @@ export namespace Session {
               ).toObject()
               break
             case e instanceof Error:
-              assistantMsg.error = new NamedError.Unknown({ message: e.toString() }, { cause: e }).toObject()
+              // Enhanced error message with more context
+              const enhancedMessage = `Session error [${providerID}/${modelID}]: ${e.message}`
+
+              // Check if this is a function calling related error
+              if (
+                e.message.includes("Failed to call a function") ||
+                e.message.includes("function") ||
+                e.message.includes("tool")
+              ) {
+                assistantMsg.error = new MessageV2.FunctionCallingError({
+                  providerID: providerID,
+                  modelID: modelID,
+                  message: enhancedMessage,
+                  suggestion:
+                    "This appears to be a function calling error. Try simplifying your request or using a different model.",
+                }).toObject()
+              } else {
+                assistantMsg.error = new NamedError.Unknown(
+                  {
+                    message: enhancedMessage,
+                  },
+                  { cause: e },
+                ).toObject()
+              }
               break
             default:
-              assistantMsg.error = new NamedError.Unknown({ message: JSON.stringify(e) }, { cause: e })
+              assistantMsg.error = new NamedError.Unknown(
+                {
+                  message: `Unknown session error: ${JSON.stringify(e)}`,
+                },
+                { cause: e },
+              )
           }
           Bus.publish(Event.Error, {
             sessionID: assistantMsg.sessionID,
@@ -1183,6 +1353,70 @@ export namespace Session {
     return next
   }
 
+  async function extractCommandHistory(sessionID: string) {
+    const msgs = await messages(sessionID)
+    const commands: string[] = []
+
+    for (const msg of msgs) {
+      for (const part of msg.parts) {
+        if (part.type === "tool" && part.tool === "bash") {
+          if (part.state.status === "completed" && part.state.input) {
+            const command = part.state.input["command"] || part.state.input
+            if (typeof command === "string" && command.trim()) {
+              commands.push(command.trim())
+            }
+          }
+        }
+        // Also check for bash commands in text parts that might be synthetic
+        if (part.type === "text" && part.synthetic) {
+          const text = part.text
+          // Look for bash command patterns in synthetic text parts
+          const bashMatch = text.match(
+            /Called the (?:Bash|bash) tool with the following input:\s*(\{[^}]+\}|"[^"]+"|'[^']+'|[^"'\s]+)/,
+          )
+          if (bashMatch) {
+            try {
+              const cmdInput = bashMatch[1]
+              let command = ""
+              if (cmdInput.startsWith("{")) {
+                // Parse JSON object
+                const parsed = JSON.parse(cmdInput)
+                command = parsed.command || parsed.cmd || ""
+              } else if (cmdInput.startsWith('"') || cmdInput.startsWith("'")) {
+                // Remove quotes
+                command = cmdInput.slice(1, -1)
+              } else {
+                command = cmdInput
+              }
+              if (command.trim()) {
+                commands.push(command.trim())
+              }
+            } catch {
+              // If parsing fails, try to extract command directly
+              const directMatch = text.match(/command["\s]*:["\s]*"([^"]+)"/)
+              if (directMatch) {
+                commands.push(directMatch[1].trim())
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Remove duplicates while preserving order and get the most important commands
+    const uniqueCommands = [...new Set(commands)]
+
+    // Prioritize more substantial commands (not just simple ones like "ls", "pwd", etc.)
+    const prioritizedCommands = uniqueCommands.filter((cmd) => {
+      const lowerCmd = cmd.toLowerCase()
+      // Filter out very simple commands that are less useful for context
+      return !["ls", "pwd", "cd", "clear", "echo", "date", "whoami"].includes(lowerCmd.split(" ")[0]) && cmd.length > 3
+    })
+
+    // If we have too many, limit to the most important ones
+    return prioritizedCommands.slice(0, 10)
+  }
+
   export async function summarize(input: { sessionID: string; providerID: string; modelID: string }) {
     using abort = lock(input.sessionID)
     const msgs = await messages(input.sessionID)
@@ -1190,6 +1424,7 @@ export namespace Session {
     const filtered = msgs.filter((msg) => !lastSummary || msg.info.id >= lastSummary.info.id)
     const model = await Provider.getModel(input.providerID, input.modelID)
     const app = App.info()
+    const commandHistory = await extractCommandHistory(input.sessionID)
     const system = [
       ...SystemPrompt.summarize(input.providerID),
       ...(await SystemPrompt.environment()),
@@ -1222,7 +1457,7 @@ export namespace Session {
     }
     await updateMessage(next)
 
-    const processor = createProcessor(next, model.info)
+    const processor = createProcessor(next, model.info, input.providerID, input.modelID, {})
     const stream = streamText({
       maxRetries: 10,
       abortSignal: abort.signal,
@@ -1240,7 +1475,7 @@ export namespace Session {
           content: [
             {
               type: "text",
-              text: "Provide a detailed but concise summary of our conversation above. Focus on information that would be helpful for continuing the conversation, including what we did, what we're doing, which files we're working on, and what we're going to do next.",
+              text: `Provide a detailed summary of our conversation above. Include these specific commands that were executed:\n${commandHistory.map((cmd) => `\`\`\`\n${cmd}\n\`\`\``).join("\n")}\n\nFocus on what was discussed, what actions were taken, which files were modified, and the current state of everything.`,
             },
           ],
         },

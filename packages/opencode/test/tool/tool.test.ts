@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { App } from "../../src/app/app"
 import { GlobTool } from "../../src/tool/glob"
-import { ListTool } from "../../src/tool/ls"
 
 const ctx = {
   sessionID: "test",
@@ -10,7 +9,6 @@ const ctx = {
   metadata: () => {},
 }
 const glob = await GlobTool.init()
-const list = await ListTool.init()
 
 describe("tool.glob", () => {
   test("truncate", async () => {
@@ -39,14 +37,5 @@ describe("tool.glob", () => {
         count: 3,
       })
     })
-  })
-})
-
-describe("tool.ls", () => {
-  test("basic", async () => {
-    const result = await App.provide({ cwd: process.cwd() }, async () => {
-      return await list.execute({ path: "./example", ignore: [".git"] }, ctx)
-    })
-    expect(result.output).toMatchSnapshot()
   })
 })

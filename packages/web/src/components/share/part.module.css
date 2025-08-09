@@ -238,7 +238,6 @@
 
     &[data-tool="read"],
     &[data-tool="edit"],
-    &[data-tool="list"],
     &[data-tool="glob"],
     &[data-tool="text_search"],
     &[data-tool="write"],

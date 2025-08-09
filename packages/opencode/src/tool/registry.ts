@@ -3,7 +3,6 @@ import { BashTool } from "./bash"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { TextSearchTool } from "./text_search"
-import { ListTool } from "./ls"
 import { PatchTool } from "./patch"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
@@ -18,7 +17,6 @@ export namespace ToolRegistry {
     WebFetchTool,
     GlobTool,
     TextSearchTool,
-    ListTool,
     PatchTool,
     ReadTool,
     WriteTool,

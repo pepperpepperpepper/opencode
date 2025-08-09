@@ -16,6 +16,17 @@ export namespace MessageV2 {
       message: z.string(),
     }),
   )
+  export const FunctionCallingError = NamedError.create(
+    "MessageFunctionCallingError",
+    z.object({
+      providerID: z.string(),
+      modelID: z.string(),
+      message: z.string(),
+      toolName: z.string().optional(),
+      toolCallId: z.string().optional(),
+      suggestion: z.string().optional(),
+    }),
+  )
 
   export const ToolStatePending = z
     .object({
@@ -230,6 +241,7 @@ export namespace MessageV2 {
         NamedError.Unknown.Schema,
         OutputLengthError.Schema,
         AbortedError.Schema,
+        FunctionCallingError.Schema,
       ])
       .optional(),
     system: z.string().array(),
