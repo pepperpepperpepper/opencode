@@ -49,11 +49,7 @@ export namespace SystemPrompt {
     ]
   }
 
-  const CUSTOM_FILES = [
-    "AGENTS.md",
-    "CLAUDE.md",
-    "CONTEXT.md", // deprecated
-  ]
+  const CUSTOM_FILES = ["AGENTS.md", "CLAUDE.md"]
 
   export async function custom() {
     const { cwd, root } = App.info().path
