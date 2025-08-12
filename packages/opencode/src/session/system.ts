@@ -45,6 +45,10 @@ export namespace SystemPrompt {
             : ""
         }`,
         `</project>`,
+        ``,
+        `## IMPORTANT: NO BACKGROUND PROCESSES`,
+        `DO NOT run processes in the background using "&". Instead, inform the user that they need to run the code in a separate shell.`,
+        ``,
       ].join("\n"),
     ]
   }

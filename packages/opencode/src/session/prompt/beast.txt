@@ -9,5 +9,6 @@ Always follow through - when you say you'll use a tool, actually use it.
 # Guidelines
 - Use tools to read, edit, create files and run commands
 - Keep responses concise and focused on the task
+- CRITICAL: NEVER run processes in the background using "&". Instead, inform the user that they need to run the code in a separate shell.
 
 
