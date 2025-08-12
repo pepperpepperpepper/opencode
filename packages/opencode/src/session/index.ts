@@ -1356,9 +1356,17 @@ export namespace Session {
   async function extractCommandHistory(sessionID: string) {
     const msgs = await messages(sessionID)
     const commands: string[] = []
+    const toolCalls: Array<{
+      tool: string
+      status: "completed" | "error" | "running"
+      input?: any
+      output?: string
+      error?: string
+    }> = []
 
     for (const msg of msgs) {
       for (const part of msg.parts) {
+        // Extract bash commands
         if (part.type === "tool" && part.tool === "bash") {
           if (part.state.status === "completed" && part.state.input) {
             const command = part.state.input["command"] || part.state.input
@@ -1366,7 +1374,30 @@ export namespace Session {
               commands.push(command.trim())
             }
           }
+
+          // Track tool call details (only for non-pending states)
+          if (part.state.status !== "pending") {
+            toolCalls.push({
+              tool: part.tool,
+              status: part.state.status,
+              input: part.state.input,
+              output: part.state.status === "completed" ? part.state.output : undefined,
+              error: part.state.status === "error" ? part.state.error : undefined,
+            })
+          }
         }
+
+        // Extract other tool calls (only for non-pending states)
+        if (part.type === "tool" && part.tool !== "bash" && part.state.status !== "pending") {
+          toolCalls.push({
+            tool: part.tool,
+            status: part.state.status,
+            input: part.state.input,
+            output: part.state.status === "completed" ? part.state.output : undefined,
+            error: part.state.status === "error" ? part.state.error : undefined,
+          })
+        }
+
         // Also check for bash commands in text parts that might be synthetic
         if (part.type === "text" && part.synthetic) {
           const text = part.text
@@ -1414,7 +1445,10 @@ export namespace Session {
     })
 
     // If we have too many, limit to the most important ones
-    return prioritizedCommands.slice(0, 10)
+    return {
+      commands: prioritizedCommands.slice(0, 10),
+      toolCalls: toolCalls.slice(-20), // Get last 20 tool calls for context
+    }
   }
 
   export async function summarize(input: { sessionID: string; providerID: string; modelID: string }) {
@@ -1424,7 +1458,7 @@ export namespace Session {
     const filtered = msgs.filter((msg) => !lastSummary || msg.info.id >= lastSummary.info.id)
     const model = await Provider.getModel(input.providerID, input.modelID)
     const app = App.info()
-    const commandHistory = await extractCommandHistory(input.sessionID)
+    const historyData = await extractCommandHistory(input.sessionID)
     const system = [
       ...SystemPrompt.summarize(input.providerID),
       ...(await SystemPrompt.environment()),
@@ -1475,7 +1509,31 @@ export namespace Session {
           content: [
             {
               type: "text",
-              text: `Provide a detailed summary of our conversation above. Include these specific commands that were executed:\n${commandHistory.map((cmd) => `\`\`\`\n${cmd}\n\`\`\``).join("\n")}\n\nFocus on what was discussed, what actions were taken, which files were modified, and the current state of everything.`,
+              text: `Provide a detailed summary of our conversation above. 
+
+## Commands Executed
+${historyData.commands.map((cmd) => `\`\`\`\n${cmd}\n\`\`\``).join("\n")}
+
+## Tool Usage Summary
+${historyData.toolCalls
+  .map((call) => {
+    const status = call.status === "completed" ? "✅" : call.status === "error" ? "❌" : "⏳"
+    const errorInfo = call.error ? ` - Error: ${call.error}` : ""
+    return `${status} **${call.tool}**${errorInfo}`
+  })
+  .join("\n")}
+
+## Previous Summary Content
+${
+  lastSummary
+    ? lastSummary.parts
+        .map((p) => (p.type === "text" ? p.text : ""))
+        .join("\n\n")
+        .substring(0, 1000) + "..."
+    : "No previous summary"
+}
+
+Focus on what was discussed, what actions were taken, which files were modified, and the current state of everything. Pay special attention to any errors, user complaints, or corrections that occurred, and how they were resolved.`,
             },
           ],
         },
