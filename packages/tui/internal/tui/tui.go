@@ -33,31 +33,6 @@ import (
 	"github.com/sst/opencode/internal/util"
 )
 
-// InterruptDebounceTimeoutMsg is sent when the interrupt key debounce timeout expires
-type InterruptDebounceTimeoutMsg struct{}
-
-// ExitDebounceTimeoutMsg is sent when the exit key debounce timeout expires
-type ExitDebounceTimeoutMsg struct{}
-
-// InterruptKeyState tracks the state of interrupt key presses for debouncing
-type InterruptKeyState int
-
-// ExitKeyState tracks the state of exit key presses for debouncing
-type ExitKeyState int
-
-const (
-	InterruptKeyIdle InterruptKeyState = iota
-	InterruptKeyFirstPress
-)
-
-const (
-	ExitKeyIdle ExitKeyState = iota
-	ExitKeyFirstPress
-)
-
-const interruptDebounceTimeout = 1 * time.Second
-const exitDebounceTimeout = 1 * time.Second
-
 type Model struct {
 	width, height        int
 	app                  *app.App
@@ -72,11 +47,9 @@ type Model struct {
 	showCompletionDialog bool
 	leaderBinding        *key.Binding
 	// isLeaderSequence     bool
-	toastManager      *toast.ToastManager
-	interruptKeyState InterruptKeyState
-	exitKeyState      ExitKeyState
-	messagesRight     bool
-	fileViewer        fileviewer.Model
+	toastManager  *toast.ToastManager
+	messagesRight bool
+	fileViewer    fileviewer.Model
 }
 
 func (a Model) Init() tea.Cmd {
@@ -228,52 +201,34 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, util.CmdHandler(commands.ExecuteCommandMsg(inputClearCommand))
 		}
 
-		// 7. Handle interrupt key debounce for session interrupt
+		// 7. Handle interrupt key for session interrupt - single press
 		interruptCommand := a.app.Commands[commands.SessionInterruptCommand]
 		if interruptCommand.Matches(msg, a.app.IsLeaderSequence) && a.app.IsBusy() {
-			switch a.interruptKeyState {
-			case InterruptKeyIdle:
-				// First interrupt key press - start debounce timer
-				a.interruptKeyState = InterruptKeyFirstPress
-				a.editor.SetInterruptKeyInDebounce(true)
-				return a, tea.Tick(interruptDebounceTimeout, func(t time.Time) tea.Msg {
-					return InterruptDebounceTimeoutMsg{}
-				})
-			case InterruptKeyFirstPress:
-				// Second interrupt key press within timeout - actually interrupt
-				a.interruptKeyState = InterruptKeyIdle
-				a.editor.SetInterruptKeyInDebounce(false)
-				return a, util.CmdHandler(commands.ExecuteCommandMsg(interruptCommand))
-			}
+			// Single press interrupt - no debounce
+			return a, util.CmdHandler(commands.ExecuteCommandMsg(interruptCommand))
 		}
 
-		// 8. Handle exit key debounce for app exit when using non-leader command
+		// 8. Handle exit command directly (no debounce needed)
 		exitCommand := a.app.Commands[commands.AppExitCommand]
 		if exitCommand.Matches(msg, a.app.IsLeaderSequence) {
-			switch a.exitKeyState {
-			case ExitKeyIdle:
-				// First exit key press - start debounce timer
-				a.exitKeyState = ExitKeyFirstPress
-				a.editor.SetExitKeyInDebounce(true)
-				return a, tea.Tick(exitDebounceTimeout, func(t time.Time) tea.Msg {
-					return ExitDebounceTimeoutMsg{}
-				})
-			case ExitKeyFirstPress:
-				// Second exit key press within timeout - actually exit
-				a.exitKeyState = ExitKeyIdle
-				a.editor.SetExitKeyInDebounce(false)
-				return a, util.CmdHandler(commands.ExecuteCommandMsg(exitCommand))
-			}
+			return a, util.CmdHandler(commands.ExecuteCommandMsg(exitCommand))
 		}
 
 		// 9. Check again for commands that don't require leader (excluding interrupt when busy and exit when in debounce)
 		matches := a.app.Commands.Matches(msg, a.app.IsLeaderSequence)
 		if len(matches) > 0 {
-			// Skip interrupt key if we're in debounce mode and app is busy
-			if interruptCommand.Matches(msg, a.app.IsLeaderSequence) && a.app.IsBusy() && a.interruptKeyState != InterruptKeyIdle {
-				return a, nil
+			// Filter out SessionInterruptCommand when app is not busy (should only work when busy)
+			filteredMatches := []commands.Command{}
+			for _, match := range matches {
+				if match.Name == commands.SessionInterruptCommand && !a.app.IsBusy() {
+					// Skip interrupt command if app is not busy
+					continue
+				}
+				filteredMatches = append(filteredMatches, match)
 			}
-			return a, util.CmdHandler(commands.ExecuteCommandsMsg(matches))
+			if len(filteredMatches) > 0 {
+				return a, util.CmdHandler(commands.ExecuteCommandsMsg(filteredMatches))
+			}
 		}
 
 		if keyString == "ctrl+alt+c" {
@@ -553,14 +508,7 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		tm, cmd := a.toastManager.Update(msg)
 		a.toastManager = tm
 		cmds = append(cmds, cmd)
-	case InterruptDebounceTimeoutMsg:
-		// Reset interrupt key state after timeout
-		a.interruptKeyState = InterruptKeyIdle
-		a.editor.SetInterruptKeyInDebounce(false)
-	case ExitDebounceTimeoutMsg:
-		// Reset exit key state after timeout
-		a.exitKeyState = ExitKeyIdle
-		a.editor.SetExitKeyInDebounce(false)
+
 	case dialog.FindSelectedMsg:
 		return a.openFile(msg.FilePath)
 
@@ -1149,8 +1097,6 @@ func NewModel(app *app.App) tea.Model {
 		leaderBinding:        leaderBinding,
 		showCompletionDialog: false,
 		toastManager:         toast.NewToastManager(),
-		interruptKeyState:    InterruptKeyIdle,
-		exitKeyState:         ExitKeyIdle,
 		fileViewer:           fileviewer.New(app),
 		messagesRight:        app.State.MessagesRight,
 	}

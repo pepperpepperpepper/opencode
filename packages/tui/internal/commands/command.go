@@ -260,7 +260,7 @@ func LoadFromConfig(config *opencode.Config) CommandRegistry {
 		{
 			Name:        FileCloseCommand,
 			Description: "close file",
-			Keybindings: parseBindings("esc"),
+			Keybindings: parseBindings("ctrl+w"),
 		},
 		{
 			Name:        FileSearchCommand,
