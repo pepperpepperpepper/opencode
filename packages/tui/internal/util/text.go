@@ -33,12 +33,9 @@ func ProcessTextWithHyphens(text string, processFunc func(string) string) string
 }
 
 // GetMessageContainerFrame calculates the actual horizontal frame size
-// (padding + borders) for message containers based on current theme.
+// (padding) for message containers based on current theme.
 func GetMessageContainerFrame() int {
 	style := lipgloss.NewStyle().
-		BorderStyle(lipgloss.ThickBorder()).
-		BorderLeft(true).
-		BorderRight(true).
 		PaddingLeft(2).
 		PaddingRight(2)
 	return style.GetHorizontalFrameSize()

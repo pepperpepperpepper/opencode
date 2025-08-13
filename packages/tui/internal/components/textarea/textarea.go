@@ -534,7 +534,7 @@ func New() Model {
 		CharLimit:            defaultCharLimit,
 		MaxHeight:            defaultMaxHeight,
 		MaxWidth:             defaultMaxWidth,
-		Prompt:               lipgloss.ThickBorder().Left + " ",
+		Prompt:               "  ",
 		Styles:               styles,
 		cache:                NewMemoCache[line, [][]any](maxLines),
 		EndOfBufferCharacter: ' ',

@@ -125,11 +125,6 @@ func renderContentBlock(
 		option(renderer)
 	}
 
-	borderColor := t.BackgroundPanel()
-	if renderer.borderColor != nil {
-		borderColor = *renderer.borderColor
-	}
-
 	style := styles.NewStyle().
 		Foreground(renderer.textColor).
 		Background(t.BackgroundPanel()).
@@ -138,26 +133,6 @@ func renderContentBlock(
 		PaddingLeft(renderer.paddingLeft).
 		PaddingRight(renderer.paddingRight).
 		AlignHorizontal(lipgloss.Left)
-
-	if renderer.border {
-		style = style.
-			BorderStyle(lipgloss.ThickBorder()).
-			BorderLeft(true).
-			BorderRight(true).
-			BorderLeftForeground(borderColor).
-			BorderLeftBackground(t.Background()).
-			BorderRightForeground(t.BackgroundPanel()).
-			BorderRightBackground(t.Background())
-
-		if renderer.borderColorRight {
-			style = style.
-				BorderLeftBackground(t.Background()).
-				BorderLeftForeground(t.BackgroundPanel()).
-				BorderRightForeground(borderColor).
-				BorderRightBackground(t.Background())
-		}
-
-	}
 
 	content = style.Render(content)
 	if renderer.marginTop > 0 {
@@ -250,14 +225,12 @@ func renderText(
 			content,
 			width,
 			WithTextColor(t.Text()),
-			WithBorderColorRight(t.Secondary()),
 		)
 	case opencode.AssistantMessage:
 		return renderContentBlock(
 			app,
 			content,
 			width,
-			WithBorderColor(t.Accent()),
 		)
 	}
 	return ""
@@ -301,7 +274,6 @@ func renderToolDetails(
 	body := ""
 	t := theme.CurrentTheme()
 	backgroundColor := t.BackgroundPanel()
-	borderColor := t.BackgroundPanel()
 	defaultStyle := styles.NewStyle().Background(backgroundColor).Width(width - 6).Render
 
 	if toolCall.State.Metadata != nil {
@@ -359,7 +331,6 @@ func renderToolDetails(
 						content,
 						width,
 						WithPadding(0),
-						WithBorderColor(borderColor),
 					)
 					return content
 				}
@@ -463,7 +434,7 @@ func renderToolDetails(
 
 	title := renderToolTitle(toolCall, width)
 	content := title + "\n\n" + body
-	return renderContentBlock(app, content, width, WithBorderColor(borderColor))
+	return renderContentBlock(app, content, width)
 }
 
 func renderToolName(name string) string {

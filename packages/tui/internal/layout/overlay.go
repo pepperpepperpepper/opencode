@@ -109,11 +109,22 @@ func PlaceOverlay(
 			}
 		}
 
-		// Render the overlay content without borders
-		// No border, just render the content
+		// Render the overlay content with or without borders
 		fgLine := fgLines[i-y]
+
+		if options.border {
+			// Render left border (using spaces instead of vertical bars)
+			b.WriteString("  ")
+		}
+
 		b.WriteString(fgLine)
 		pos += ansi.PrintableRuneWidth(fgLine)
+
+		if options.border {
+			// Render right border (using spaces instead of vertical bars)
+			b.WriteString("  ")
+			pos += 2 // Account for border characters
+		}
 
 		// Handle right side of the line after the overlay
 		right := cutLeft(bgLine, pos)

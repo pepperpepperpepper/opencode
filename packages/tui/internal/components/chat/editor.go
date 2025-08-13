@@ -322,20 +322,11 @@ func (m *editorComponent) Content() string {
 		prompt,
 		m.textarea.View(),
 	)
-	borderForeground := t.Border()
-	if m.app.IsLeaderSequence {
-		borderForeground = t.Accent()
-	}
 	textarea = styles.NewStyle().
 		Background(t.BackgroundElement()).
 		Width(width).
 		PaddingTop(1).
 		PaddingBottom(1).
-		BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(borderForeground).
-		BorderBackground(t.Background()).
-		BorderLeft(true).
-		BorderRight(true).
 		Render(textarea)
 
 	hint := base(m.getSubmitKeyText()) + muted(" send   ")

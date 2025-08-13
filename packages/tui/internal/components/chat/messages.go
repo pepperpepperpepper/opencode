@@ -562,7 +562,6 @@ func (m *messagesComponent) renderView() tea.Cmd {
 					m.app,
 					error,
 					width,
-					WithBorderColor(t.Error()),
 				)
 				error = lipgloss.PlaceHorizontal(
 					m.width,
@@ -608,7 +607,6 @@ func (m *messagesComponent) renderView() tea.Cmd {
 				m.app,
 				content,
 				width,
-				WithBorderColor(t.BackgroundPanel()),
 			)
 			blocks = append(blocks, content)
 		}
@@ -765,11 +763,6 @@ func (m *messagesComponent) renderHeader() string {
 		Width(headerWidth).
 		PaddingLeft(2).
 		PaddingRight(2).
-		BorderLeft(true).
-		BorderRight(true).
-		BorderBackground(t.Background()).
-		BorderForeground(t.BackgroundElement()).
-		BorderStyle(lipgloss.ThickBorder()).
 		Render(header)
 	header = lipgloss.PlaceHorizontal(
 		m.width,

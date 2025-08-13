@@ -174,11 +174,6 @@ func (c *completionDialogComponent) View() string {
 		Padding(0, 1).
 		Foreground(t.Text()).
 		Background(t.BackgroundElement()).
-		BorderStyle(lipgloss.ThickBorder()).
-		BorderLeft(true).
-		BorderRight(true).
-		BorderForeground(t.Border()).
-		BorderBackground(t.Background()).
 		Width(c.width).
 		Render(c.list.View())
 }
