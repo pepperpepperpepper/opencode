@@ -16,25 +16,28 @@ export const BashTool = Tool.define("bash", {
   async execute(params, ctx) {
     const timeout = Math.min(params.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT)
 
-    const process = Bun.spawn({
+    // Use OPENCODE_WORKING_DIR if available (when running from TUI), otherwise use app context
+    const workingDir = process.env["OPENCODE_WORKING_DIR"] || App.info().path.cwd
+
+    const bashProcess = Bun.spawn({
       cmd: ["bash", "-c", params.command],
-      cwd: App.info().path.cwd,
+      cwd: workingDir,
       maxBuffer: MAX_OUTPUT_LENGTH,
       signal: ctx.abort,
       timeout: timeout,
       stdout: "pipe",
       stderr: "pipe",
     })
-    await process.exited
-    const stdout = await new Response(process.stdout).text()
-    const stderr = await new Response(process.stderr).text()
+    await bashProcess.exited
+    const stdout = await new Response(bashProcess.stdout).text()
+    const stderr = await new Response(bashProcess.stderr).text()
 
     return {
       title: params.command,
       metadata: {
         stderr,
         stdout,
-        exit: process.exitCode,
+        exit: bashProcess.exitCode,
       },
       output: [`<stdout>`, stdout ?? "", `</stdout>`, `<stderr>`, stderr ?? "", `</stderr>`].join("\n"),
     }

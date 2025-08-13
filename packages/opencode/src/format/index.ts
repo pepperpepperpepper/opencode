@@ -46,9 +46,10 @@ export namespace Format {
 
       for (const item of await getFormatter(ext)) {
         log.info("running", { command: item.command })
+        const workingDir = process.env["OPENCODE_WORKING_DIR"] || App.info().path.cwd
         const proc = Bun.spawn({
           cmd: item.command.map((x) => x.replace("$FILE", file)),
-          cwd: App.info().path.cwd,
+          cwd: workingDir,
           env: item.environment,
           stdout: "ignore",
           stderr: "ignore",

@@ -839,6 +839,11 @@ func (a Model) executeCommand(command commands.Command) (tea.Model, tea.Cmd) {
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
+
+		// Set the working directory to the original user directory
+		if workingDir := os.Getenv("OPENCODE_WORKING_DIR"); workingDir != "" {
+			c.Dir = workingDir
+		}
 		cmd = tea.ExecProcess(c, func(err error) tea.Msg {
 			if err != nil {
 				slog.Error("Failed to open editor", "error", err)
@@ -946,6 +951,11 @@ func (a Model) executeCommand(command commands.Command) (tea.Model, tea.Cmd) {
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
+
+		// Set the working directory to the original user directory
+		if workingDir := os.Getenv("OPENCODE_WORKING_DIR"); workingDir != "" {
+			c.Dir = workingDir
+		}
 		cmd = tea.ExecProcess(c, func(err error) tea.Msg {
 			if err != nil {
 				slog.Error("Failed to open editor for conversation", "error", err)

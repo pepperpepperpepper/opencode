@@ -28,7 +28,6 @@ func main() {
 	if version != "dev" && !strings.HasPrefix(Version, "v") {
 		version = "v" + Version
 	}
-
 	var model *string = flag.String("model", "", "model to begin with")
 	var prompt *string = flag.String("prompt", "", "prompt to begin with")
 	var mode *string = flag.String("mode", "", "mode to begin with")

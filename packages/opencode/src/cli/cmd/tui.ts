@@ -70,7 +70,7 @@ export const TuiCommand = cmd({
         })
 
         let cmd = ["go", "run", "./main.go"]
-        let cwd = Bun.fileURLToPath(new URL("../../../../tui/cmd/opencode", import.meta.url))
+        let goCwd = Bun.fileURLToPath(new URL("../../../../tui/cmd/opencode", import.meta.url))
         if (Bun.embeddedFiles.length > 0) {
           const blob = Bun.embeddedFiles[0] as File
           let binaryName = blob.name
@@ -83,8 +83,7 @@ export const TuiCommand = cmd({
             await Bun.write(file, blob, { mode: 0o755 })
             await fs.chmod(binary, 0o755)
           }
-          cwd = process.cwd()
-          cmd = [binary]
+          goCwd = process.cwd()
         }
         Log.Default.info("tui", {
           cmd,
@@ -96,7 +95,7 @@ export const TuiCommand = cmd({
             ...(args.prompt ? ["--prompt", args.prompt] : []),
             ...(args.mode ? ["--mode", args.mode] : []),
           ],
-          cwd,
+          cwd: goCwd,
           stdout: "inherit",
           stderr: "inherit",
           stdin: "inherit",
@@ -106,6 +105,7 @@ export const TuiCommand = cmd({
             OPENCODE_SERVER: server.url.toString(),
             OPENCODE_APP_INFO: JSON.stringify(app),
             OPENCODE_MODES: JSON.stringify(await Mode.list()),
+            OPENCODE_WORKING_DIR: cwd,
           },
           onExit: () => {
             server.stop()

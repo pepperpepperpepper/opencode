@@ -21,10 +21,11 @@ export namespace ConfigHooks {
           file: payload.properties.file,
           command: item.command,
         })
+        const workingDir = process.env["OPENCODE_WORKING_DIR"] || app.path.cwd
         Bun.spawn({
           cmd: item.command.map((x) => x.replace("$FILE", payload.properties.file)),
           env: item.environment,
-          cwd: app.path.cwd,
+          cwd: workingDir,
           stdout: "ignore",
           stderr: "ignore",
         })
@@ -42,9 +43,10 @@ export namespace ConfigHooks {
           log.info("session_completed", {
             command: item.command,
           })
+          const workingDir = process.env["OPENCODE_WORKING_DIR"] || App.info().path.cwd
           Bun.spawn({
             cmd: item.command,
-            cwd: App.info().path.cwd,
+            cwd: workingDir,
             env: item.environment,
             stdout: "ignore",
             stderr: "ignore",

@@ -26,11 +26,13 @@ export namespace SystemPrompt {
 
   export async function environment() {
     const app = App.info()
+    // Use OPENCODE_WORKING_DIR if available (when running from TUI), otherwise use app context
+    const workingDir = process.env["OPENCODE_WORKING_DIR"] || app.path.cwd
     return [
       [
         `Here is some useful information about the environment you are running in:`,
         `<env>`,
-        `  Working directory: ${app.path.cwd}`,
+        `  Working directory: ${workingDir}`,
         `  Is directory a git repo: ${app.git ? "yes" : "no"}`,
         `  Platform: ${process.platform}`,
         `  Today's date: ${new Date().toDateString()}`,
@@ -39,7 +41,7 @@ export namespace SystemPrompt {
         `  ${
           app.git
             ? await Ripgrep.tree({
-                cwd: app.path.cwd,
+                cwd: workingDir,
                 limit: 200,
               })
             : ""
@@ -56,11 +58,14 @@ export namespace SystemPrompt {
   const CUSTOM_FILES = ["AGENTS.md", "CLAUDE.md"]
 
   export async function custom() {
-    const { cwd, root } = App.info().path
+    const app = App.info()
+    // Use OPENCODE_WORKING_DIR if available (when running from TUI), otherwise use app context
+    const workingDir = process.env["OPENCODE_WORKING_DIR"] || app.path.cwd
+    const { root } = app.path
     const config = await Config.get()
     const found = []
     for (const item of CUSTOM_FILES) {
-      const matches = await Filesystem.findUp(item, cwd, root)
+      const matches = await Filesystem.findUp(item, workingDir, root)
       found.push(...matches.map((x) => Bun.file(x).text()))
     }
     found.push(
@@ -77,7 +82,7 @@ export namespace SystemPrompt {
     if (config.instructions) {
       for (const instruction of config.instructions) {
         try {
-          const matches = await Filesystem.globUp(instruction, cwd, root)
+          const matches = await Filesystem.globUp(instruction, workingDir, root)
           found.push(...matches.map((x) => Bun.file(x).text()))
         } catch {
           continue // Skip invalid glob patterns
