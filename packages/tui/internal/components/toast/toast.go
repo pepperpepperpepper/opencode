@@ -169,8 +169,6 @@ func (tm *ToastManager) RenderOverlay(background string) string {
 			currentY,
 			toastView,
 			result,
-			layout.WithOverlayBorder(),
-			layout.WithOverlayBorderColor(toast.Color),
 		)
 
 		// Move down for next toast (add 1 for spacing between toasts)

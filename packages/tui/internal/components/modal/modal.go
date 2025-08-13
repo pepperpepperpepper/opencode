@@ -139,7 +139,5 @@ func (m *Modal) Render(contentView string, background string) string {
 		row,
 		modalView,
 		background,
-		layout.WithOverlayBorder(),
-		layout.WithOverlayBorderColor(t.BorderActive()),
 	)
 }

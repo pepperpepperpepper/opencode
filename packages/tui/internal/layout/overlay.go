@@ -109,53 +109,11 @@ func PlaceOverlay(
 			}
 		}
 
-		// Render the overlay content with optional borders
-		if options.border {
-			// Get the foreground line
-			fgLine := fgLines[i-y]
-			fgLineWidth := ansi.PrintableRuneWidth(fgLine)
-
-			// Extract the styles at the border positions
-			// We need to get the style just before the border position to preserve background
-			leftStyle := ansiStyle{}
-			if pos > 0 {
-				leftStyle = getStyleAtPosition(bgLine, pos-1)
-			} else {
-				leftStyle = getStyleAtPosition(bgLine, pos)
-			}
-			rightStyle := getStyleAtPosition(bgLine, pos+fgLineWidth)
-
-			// Left border - combine background from original with border foreground
-			leftSeq := combineStyles(leftStyle, options.borderColor)
-			if leftSeq != "" {
-				b.WriteString(leftSeq)
-			}
-			b.WriteString("┃")
-			if leftSeq != "" {
-				b.WriteString("\x1b[0m") // Reset all styles only if we applied any
-			}
-			pos++
-
-			// Content
-			b.WriteString(fgLine)
-			pos += fgLineWidth
-
-			// Right border - combine background from original with border foreground
-			rightSeq := combineStyles(rightStyle, options.borderColor)
-			if rightSeq != "" {
-				b.WriteString(rightSeq)
-			}
-			b.WriteString("┃")
-			if rightSeq != "" {
-				b.WriteString("\x1b[0m") // Reset all styles only if we applied any
-			}
-			pos++
-		} else {
-			// No border, just render the content
-			fgLine := fgLines[i-y]
-			b.WriteString(fgLine)
-			pos += ansi.PrintableRuneWidth(fgLine)
-		}
+		// Render the overlay content without borders
+		// No border, just render the content
+		fgLine := fgLines[i-y]
+		b.WriteString(fgLine)
+		pos += ansi.PrintableRuneWidth(fgLine)
 
 		// Handle right side of the line after the overlay
 		right := cutLeft(bgLine, pos)

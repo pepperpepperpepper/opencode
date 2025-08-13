@@ -45,7 +45,7 @@ func generateMarkdownStyleConfig(backgroundColor compat.AdaptiveColor) ansi.Styl
 			StylePrimitive: ansi.StylePrimitive{
 				Color:  AdaptiveColorToString(t.MarkdownBlockQuote()),
 				Italic: boolPtr(true),
-				Prefix: "┃ ",
+				Prefix: "  ",
 			},
 			Indent:      uintPtr(1),
 			IndentToken: stringPtr(" "),
