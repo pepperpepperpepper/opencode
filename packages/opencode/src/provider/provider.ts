@@ -192,6 +192,27 @@ export namespace Provider {
             "X-Title": "opencode",
           },
         },
+        getModel: async (sdk, modelID) => {
+          const isGlm45 = modelID.toLowerCase().includes("glm-4.5")
+          if (isGlm45) {
+            const { glm45Fetch } = await import("./zai")
+            return sdk.languageModel(modelID, { fetch: glm45Fetch })
+          }
+          return sdk.languageModel(modelID)
+        },
+      }
+    },
+    zai: async () => {
+      const apiKey = process.env["ZAI_API_KEY"]
+      if (!apiKey) return { autoload: false }
+      const { glm45Fetch } = await import("./zai")
+      return {
+        autoload: true,
+        options: {
+          apiKey,
+          baseURL: "https://open.bigmodel.cn/api/paas/v4",
+          fetch: glm45Fetch as any,
+        },
       }
     },
   }

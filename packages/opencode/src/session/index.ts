@@ -14,6 +14,7 @@ import {
   stepCountIs,
   type StreamTextResult,
 } from "ai"
+import { DebugLog } from "../util/debug-log"
 
 import PROMPT_INITIALIZE from "../session/prompt/initialize.txt"
 import PROMPT_PLAN from "../session/prompt/plan.txt"
@@ -908,6 +909,15 @@ export namespace Session {
         middleware: [
           {
             async transformParams(args) {
+              // Log the parameters being sent to the model
+              log.debug("model-params", {
+                type: args.type,
+                providerID: input.providerID,
+                modelID: input.modelID,
+                hasTools: args.params.tools ? Object.keys(args.params.tools).length : 0,
+                timestamp: new Date().toISOString(),
+              })
+
               if (args.type === "stream") {
                 // @ts-expect-error
                 args.params.prompt = ProviderTransform.message(args.params.prompt, input.providerID, input.modelID)
@@ -959,26 +969,94 @@ export namespace Session {
           let currentText: MessageV2.TextPart | undefined
 
           for await (const value of stream.fullStream) {
-            log.info("part", {
+            // Enhanced logging for debugging stream values
+            log.info("stream-part-detailed", {
               type: value.type,
+              value: JSON.stringify(value, null, 2),
+              providerID: providerID,
+              modelID: modelID,
+              timestamp: new Date().toISOString(),
             })
+
+            // Write to debug log file
+            DebugLog.streamEvent(value, providerID, modelID)
+
+            // Special logging for tool-related events
+            if (value.type.includes("tool")) {
+              log.info("tool-stream-event", {
+                type: value.type,
+                toolCallId: "id" in value ? value.id : "toolCallId" in value ? value.toolCallId : undefined,
+                toolName: "toolName" in value ? value.toolName : undefined,
+                rawValue: value,
+                providerID: providerID,
+                modelID: modelID,
+              })
+
+              // Write tool events to debug log
+              DebugLog.toolCall(value, providerID, modelID)
+            }
+
             switch (value.type) {
               case "start":
                 break
 
               case "tool-input-start":
+                // Enhanced logging for tool-input-start to debug ID issues
+                log.info("tool-input-start-detailed", {
+                  valueId: value.id,
+                  valueIdType: typeof value.id,
+                  toolName: value.toolName,
+                  fullValue: JSON.stringify(value),
+                  providerID: providerID,
+                  modelID: modelID,
+                  timestamp: new Date().toISOString(),
+                })
+
+                // Write to debug log file
+                DebugLog.debug("tool-input-start", "Tool input start event", {
+                  id: value.id,
+                  idType: typeof value.id,
+                  toolName: value.toolName,
+                  fullValue: value,
+                  provider: providerID,
+                  model: modelID,
+                })
+
+                // Validate and potentially fix the ID
+                let toolCallId = value.id
+                if (typeof toolCallId === "number") {
+                  log.warn("tool-id-conversion", {
+                    originalId: toolCallId,
+                    originalType: typeof toolCallId,
+                    convertedId: String(toolCallId),
+                    providerID: providerID,
+                    modelID: modelID,
+                  })
+                  toolCallId = String(toolCallId)
+                }
+
+                if (!toolCallId) {
+                  log.error("tool-id-missing", {
+                    value: value,
+                    providerID: providerID,
+                    modelID: modelID,
+                  })
+                  // Generate a fallback ID if missing
+                  toolCallId = `fallback-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+                }
+
                 const part = await updatePart({
-                  id: toolCalls[value.id]?.id ?? Identifier.ascending("part"),
+                  id: toolCalls[toolCallId]?.id ?? Identifier.ascending("part"),
                   messageID: assistantMsg.id,
                   sessionID: assistantMsg.sessionID,
                   type: "tool",
                   tool: value.toolName,
-                  callID: value.id,
+                  callID: toolCallId,
                   state: {
                     status: "pending",
                   },
                 })
-                toolCalls[value.id] = part as MessageV2.ToolPart
+                toolCalls[toolCallId] = part as MessageV2.ToolPart
                 break
 
               case "tool-input-delta":
@@ -1158,6 +1236,14 @@ export namespace Session {
             }
           }
         } catch (e) {
+          // Capture raw error object for debugging
+          const rawError = {
+            raw: e,
+            stringified: JSON.stringify(e, Object.getOwnPropertyNames(e), 2),
+            keys: e && typeof e === "object" ? Object.keys(e) : [],
+            propertyNames: e && typeof e === "object" ? Object.getOwnPropertyNames(e) : [],
+          }
+
           const errorDetails = {
             error: e,
             errorType: typeof e,
@@ -1170,10 +1256,58 @@ export namespace Session {
             modelID: modelID,
             timestamp: new Date().toISOString(),
             toolsEnabled: Object.keys(toolsForErrorHandling),
+            rawError: rawError,
           }
 
           // Enhanced logging for better debugging
           log.error("session-error-enhanced", errorDetails)
+
+          // Write to debug log file
+          DebugLog.sessionError(e, providerID, modelID, errorDetails)
+
+          // Special logging for "Expected 'id' to be a string" error
+          if (e instanceof Error && e.message.includes("Expected 'id' to be a string")) {
+            log.error("id-string-error-detected", {
+              ...errorDetails,
+              specialError: "ID_STRING_ERROR",
+              suggestion:
+                "This error occurs when the AI provider returns a numeric ID instead of a string ID for tool calls",
+              provider: `${providerID}/${modelID}`,
+            })
+
+            // Write specific error to debug log
+            DebugLog.error("id-string-error", "Expected 'id' to be a string error detected", {
+              ...errorDetails,
+              specialError: "ID_STRING_ERROR",
+              provider: `${providerID}/${modelID}`,
+            })
+          }
+
+          // Special handling for openrouter errors
+          if (providerID === "openrouter" || providerID.includes("openrouter")) {
+            log.error("openrouter-specific-error", {
+              ...errorDetails,
+              provider: "openrouter",
+              model: modelID,
+              suggestion: "OpenRouter may return non-standard response formats. Check the raw error details above.",
+              commonIssues: [
+                "Numeric tool call IDs instead of strings",
+                "Missing or malformed tool call deltas",
+                "Non-standard streaming format",
+              ],
+            })
+
+            // If it's the specific GLM model with known issues
+            if (modelID.includes("glm-4.5") || modelID.includes("z-ai")) {
+              log.error("glm-4.5-known-issue", {
+                provider: providerID,
+                model: modelID,
+                knownIssue: "GLM-4.5 model via OpenRouter has known compatibility issues with tool calling",
+                workaround: "Consider using a different model or disabling tool calling for this model",
+                errorContext: errorDetails,
+              })
+            }
+          }
 
           // Check for specific AI SDK / function calling errors
           if (e && typeof e === "object" && "type" in e && e.type === "invalid_request_error") {

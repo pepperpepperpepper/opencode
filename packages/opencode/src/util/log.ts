@@ -103,12 +103,41 @@ export namespace Log {
         ...extra,
       })
         .filter(([_, value]) => value !== undefined && value !== null)
-        .map(([key, value]) => `${key}=${typeof value === "object" ? JSON.stringify(value) : value}`)
+        .map(([key, value]) => {
+          if (typeof value === "object") {
+            // Pretty print objects on multiple lines
+            const formatted = JSON.stringify(value, null, 2)
+            // If it's a small object, keep it on one line
+            if (formatted.length < 80 && !formatted.includes("\n")) {
+              return `${key}=${formatted}`
+            }
+            // For larger objects, put them on a new line with indentation
+            return `${key}=\n${formatted
+              .split("\n")
+              .map((line) => "  " + line)
+              .join("\n")}`
+          }
+          return `${key}=${value}`
+        })
         .join(" ")
+
       const next = new Date()
       const diff = next.getTime() - last
       last = next.getTime()
-      return [next.toISOString().split(".")[0], "+" + diff + "ms", prefix, message].filter(Boolean).join(" ") + "\n"
+
+      // Format the message if it's an object
+      let formattedMessage = message
+      if (typeof message === "object" && message !== null) {
+        try {
+          formattedMessage = JSON.stringify(message, null, 2)
+        } catch {
+          formattedMessage = String(message)
+        }
+      }
+
+      return (
+        [next.toISOString().split(".")[0], "+" + diff + "ms", prefix, formattedMessage].filter(Boolean).join(" ") + "\n"
+      )
     }
     const result: Logger = {
       debug(message?: any, extra?: Record<string, any>) {

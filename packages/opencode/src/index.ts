@@ -50,7 +50,33 @@ const cli = yargs(hideBin(process.argv))
     type: "string",
     choices: ["DEBUG", "INFO", "WARN", "ERROR"],
   })
+  .option("debug-session", {
+    describe: "enable debug logging for session errors",
+    type: "boolean",
+    hidden: true,
+  })
+  .option("debug-stream", {
+    describe: "enable debug logging for stream events",
+    type: "boolean",
+    hidden: true,
+  })
+  .option("debug-tools", {
+    describe: "enable debug logging for tool calls",
+    type: "boolean",
+    hidden: true,
+  })
+  .option("debug", {
+    describe: "enable all debug logging (session, stream, tools)",
+    type: "boolean",
+    hidden: true,
+  })
   .middleware(async (opts) => {
+    // Set environment variables based on command-line flags
+    if (opts.debug) process.env["OPENCODE_DEBUG"] = "true"
+    if (opts.debugSession) process.env["OPENCODE_DEBUG_SESSION"] = "true"
+    if (opts.debugStream) process.env["OPENCODE_DEBUG_STREAM"] = "true"
+    if (opts.debugTools) process.env["OPENCODE_DEBUG_TOOLS"] = "true"
+
     await Log.init({
       print: process.argv.includes("--print-logs"),
       dev: Installation.isDev(),
@@ -65,6 +91,13 @@ const cli = yargs(hideBin(process.argv))
       version: Installation.VERSION,
       args: process.argv.slice(2),
     })
+
+    // Initialize debug logging for session errors
+    const { DebugLog } = await import("./util/debug-log")
+    const debugLogPath = DebugLog.init()
+    if (debugLogPath) {
+      Log.Default.info("debug-log-initialized", { path: debugLogPath })
+    }
   })
   .usage("\n" + UI.logo())
   .command(McpCommand)
