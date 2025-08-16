@@ -167,6 +167,9 @@ func renderText(
 	switch casted := message.(type) {
 	case opencode.AssistantMessage:
 		ts = time.UnixMilli(int64(casted.Time.Created))
+		if casted.ModelID == "bash" {
+			text = fmt.Sprintf("```console\n%s\n```", text)
+		}
 		content = util.ToMarkdown(text, width, backgroundColor)
 	case opencode.UserMessage:
 		ts = time.UnixMilli(int64(casted.Time.Created))

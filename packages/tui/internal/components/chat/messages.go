@@ -93,6 +93,8 @@ func (s selection) coords(offset int) *selection {
 
 type ToggleToolDetailsMsg struct{}
 
+type MessagesRefreshMsg struct{}
+
 func (m *messagesComponent) Init() tea.Cmd {
 	return tea.Batch(m.viewport.Init())
 }
@@ -227,7 +229,11 @@ func (m *messagesComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cache.Clear()
 			cmds = append(cmds, m.renderView())
 		}
+	case MessagesRefreshMsg:
+		slog.Info("DEBUG: Processing MessagesRefreshMsg", "rendering", m.rendering, "dirty", m.dirty)
+		cmds = append(cmds, m.renderView())
 	case renderCompleteMsg:
+		slog.Info("DEBUG: Received renderCompleteMsg", "partCount", msg.partCount, "lineCount", msg.lineCount, "viewportHeight", msg.viewport.Height())
 		m.partCount = msg.partCount
 		m.lineCount = msg.lineCount
 		m.rendering = false
@@ -236,7 +242,9 @@ func (m *messagesComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tail = m.viewport.AtBottom()
 		m.viewport = msg.viewport
 		m.header = msg.header
+		slog.Info("DEBUG: Updated viewport state", "rendering", m.rendering, "tail", m.tail, "viewportYOffset", m.viewport.YOffset)
 		if m.dirty {
+			slog.Info("DEBUG: Dirty flag set, triggering another render")
 			cmds = append(cmds, m.renderView())
 		}
 	}
@@ -258,6 +266,7 @@ type renderCompleteMsg struct {
 }
 
 func (m *messagesComponent) renderView() tea.Cmd {
+	slog.Info("DEBUG: renderView called", "rendering", m.rendering, "dirty", m.dirty, "messageCount", len(m.app.Messages))
 	if m.rendering {
 		slog.Debug("pending render, skipping")
 		m.dirty = true
@@ -267,6 +276,7 @@ func (m *messagesComponent) renderView() tea.Cmd {
 	}
 	m.dirty = false
 	m.rendering = true
+	slog.Info("DEBUG: Starting renderView, set rendering=true")
 
 	viewport := m.viewport
 	tail := m.tail
@@ -663,13 +673,15 @@ func (m *messagesComponent) renderView() tea.Cmd {
 			viewport.GotoBottom()
 		}
 
-		return renderCompleteMsg{
+		result := renderCompleteMsg{
 			header:    header,
 			clipboard: clipboard,
 			viewport:  viewport,
 			partCount: partCount,
 			lineCount: lineCount,
 		}
+		slog.Info("DEBUG: renderView complete", "partCount", partCount, "lineCount", lineCount, "viewportHeight", viewport.Height())
+		return result
 	}
 }
 

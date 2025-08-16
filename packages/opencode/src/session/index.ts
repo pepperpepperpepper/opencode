@@ -903,7 +903,7 @@ export namespace Session {
       temperature: model.info.temperature
         ? (mode.temperature ?? ProviderTransform.temperature(input.providerID, input.modelID))
         : undefined,
-      tools: model.info.tool_call === false ? undefined : tools,
+      tools: Object.keys(tools).length > 0 ? tools : undefined,
       model: wrapLanguageModel({
         model: model.language,
         middleware: [

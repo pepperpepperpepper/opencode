@@ -27,6 +27,7 @@ import (
 	"github.com/sst/opencode/internal/components/modal"
 	"github.com/sst/opencode/internal/components/status"
 	"github.com/sst/opencode/internal/components/toast"
+	"github.com/sst/opencode/internal/id"
 	"github.com/sst/opencode/internal/layout"
 	"github.com/sst/opencode/internal/styles"
 	"github.com/sst/opencode/internal/theme"
@@ -50,6 +51,7 @@ type Model struct {
 	toastManager  *toast.ToastManager
 	messagesRight bool
 	fileViewer    fileviewer.Model
+	isBashMode    bool
 }
 
 func (a Model) Init() tea.Cmd {
@@ -157,6 +159,22 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 
 			return a, tea.Sequence(cmds...)
+		}
+
+		// 4. Handle Bash mode
+		if keyString == "!" &&
+			!a.showCompletionDialog &&
+			a.editor.Value() == "" {
+			a.isBashMode = true
+			a.editor.SetBashMode(true)
+			return a, nil
+		}
+
+		// Handle exiting bash mode
+		if a.isBashMode && (keyString == "backspace" && a.editor.Value() == "" || keyString == "esc") {
+			a.isBashMode = false
+			a.editor.SetBashMode(false)
+			return a, nil
 		}
 
 		if a.showCompletionDialog {
@@ -497,6 +515,63 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.app.State.UpdateModelUsage(msg.Provider.ID, msg.Model.ID)
 		cmds = append(cmds, a.app.SaveState())
+	case app.BashOutputMsg:
+		slog.Info("DEBUG: Received BashOutputMsg", "outputLength", len(msg.Output), "output", msg.Output[:min(100, len(msg.Output))])
+
+		// Create session if none exists
+		if a.app.Session.ID == "" {
+			session, err := a.app.CreateSession(context.Background())
+			if err != nil {
+				slog.Error("Failed to create session for bash mode", "error", err)
+				return a, toast.NewErrorToast("Failed to create session")
+			}
+			a.app.Session = session
+		}
+
+		// Complete the previous assistant message if it exists and is not completed
+		if len(a.app.Messages) > 0 {
+			lastMessage := a.app.Messages[len(a.app.Messages)-1]
+			if assistantMsg, ok := lastMessage.Info.(opencode.AssistantMessage); ok && assistantMsg.Time.Completed == 0 {
+				slog.Info("Completing assistant message in BashOutputMsg handler", "messageID", assistantMsg.ID)
+				assistantMsg.Time.Completed = float64(time.Now().UnixMilli())
+				lastMessage.Info = assistantMsg
+				a.app.Messages[len(a.app.Messages)-1] = lastMessage
+			}
+		}
+
+		// Create a local message for bash output (don't send to AI model)
+		messageID := id.Ascending(id.Message)
+		sessionID := ""
+		if a.app.Session != nil {
+			sessionID = a.app.Session.ID
+		}
+		now := float64(time.Now().UnixMilli())
+		bashMessage := app.Message{
+			Info: opencode.AssistantMessage{
+				ID:        messageID,
+				SessionID: sessionID,
+				Role:      opencode.AssistantMessageRoleAssistant,
+				Time: opencode.AssistantMessageTime{
+					Created:   now,
+					Completed: now,
+				},
+				ModelID: "bash",
+			},
+			Parts: []opencode.PartUnion{
+				opencode.TextPart{
+					ID:        id.Ascending(id.Part),
+					MessageID: messageID,
+					SessionID: sessionID,
+					Type:      opencode.TextPartTypeText,
+					Text:      msg.Output,
+				},
+			},
+		}
+		slog.Info("DEBUG: Created bash message", "messageID", messageID, "totalMessages", len(a.app.Messages)+1)
+		a.app.Messages = append(a.app.Messages, bashMessage)
+		slog.Info("DEBUG: Appended bash message to app.Messages", "newTotalMessages", len(a.app.Messages))
+		cmds = append(cmds, util.CmdHandler(chat.MessagesRefreshMsg{}))
+		slog.Info("DEBUG: Sent MessagesRefreshMsg command")
 	case dialog.ThemeSelectedMsg:
 		a.app.State.Theme = msg.ThemeName
 		cmds = append(cmds, a.app.SaveState())
@@ -902,7 +977,8 @@ func (a Model) executeCommand(command commands.Command) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		a.app.Cancel(context.Background(), a.app.Session.ID)
-		return a, nil
+		cmds = append(cmds, util.CmdHandler(chat.MessagesRefreshMsg{}))
+		return a, tea.Batch(cmds...)
 	case commands.SessionCompactCommand:
 		if a.app.Session.ID == "" {
 			return a, nil
@@ -1109,6 +1185,7 @@ func NewModel(app *app.App) tea.Model {
 		toastManager:         toast.NewToastManager(),
 		fileViewer:           fileviewer.New(app),
 		messagesRight:        app.State.MessagesRight,
+		isBashMode:           false,
 	}
 
 	return model

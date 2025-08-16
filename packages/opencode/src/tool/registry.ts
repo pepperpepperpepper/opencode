@@ -55,6 +55,13 @@ export namespace ToolRegistry {
       }))
     }
 
+    if (providerID === "zai") {
+      return base.map((t) => ({
+        ...t,
+        parameters: sanitizeGeminiParameters(t.parameters),
+      }))
+    }
+
     return base
   }
 

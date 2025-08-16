@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"log/slog"
 
@@ -72,6 +73,10 @@ type SetEditorContentMsg struct {
 }
 type FileRenderedMsg struct {
 	FilePath string
+}
+
+type BashOutputMsg struct {
+	Output string
 }
 
 func New(
@@ -388,7 +393,7 @@ func (a *App) IsBusy() bool {
 	if casted, ok := lastMessage.Info.(opencode.AssistantMessage); ok {
 		return casted.Time.Completed == 0
 	}
-	return true
+	return false
 }
 
 func (a *App) SaveState() tea.Cmd {
@@ -517,6 +522,17 @@ func (a *App) Cancel(ctx context.Context, sessionID string) error {
 	if a.compactCancel != nil {
 		a.compactCancel()
 		a.compactCancel = nil
+	}
+
+	// Complete the current assistant message locally to fix IsBusy state
+	if len(a.Messages) > 0 {
+		lastMessage := a.Messages[len(a.Messages)-1]
+		if assistantMsg, ok := lastMessage.Info.(opencode.AssistantMessage); ok && assistantMsg.Time.Completed == 0 {
+			slog.Info("Completing assistant message in Cancel method", "messageID", assistantMsg.ID)
+			assistantMsg.Time.Completed = float64(time.Now().UnixMilli())
+			lastMessage.Info = assistantMsg
+			a.Messages[len(a.Messages)-1] = lastMessage
+		}
 	}
 
 	_, err := a.Client.Session.Abort(ctx, sessionID)

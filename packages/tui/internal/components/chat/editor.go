@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -44,6 +45,7 @@ type EditorComponent interface {
 	SetValueWithAttachments(value string)
 	SetInterruptKeyInDebounce(inDebounce bool)
 	SetExitKeyInDebounce(inDebounce bool)
+	SetBashMode(inBashMode bool)
 	RestoreFromHistory(index int)
 }
 
@@ -54,6 +56,7 @@ type editorComponent struct {
 	spinner                spinner.Model
 	interruptKeyInDebounce bool
 	exitKeyInDebounce      bool
+	isBashMode             bool
 	historyIndex           int    // -1 means current (not in history)
 	currentText            string // Store current text when navigating history
 	pasteCounter           int
@@ -315,6 +318,9 @@ func (m *editorComponent) Content() string {
 		Padding(0, 0, 0, 1).
 		Bold(true)
 	prompt := promptStyle.Render(">")
+	if m.isBashMode {
+		prompt = promptStyle.Render("!")
+	}
 
 	m.textarea.SetWidth(width - 6)
 	textarea := lipgloss.JoinHorizontal(
@@ -417,6 +423,36 @@ func (m *editorComponent) Submit() (tea.Model, tea.Cmd) {
 	switch value {
 	case "exit", "quit", "q", ":q":
 		return m, tea.Quit
+	}
+
+	// If in bash mode, execute the command locally and display output
+	if m.isBashMode {
+		m.isBashMode = false
+
+		// Execute bash command asynchronously to avoid hanging the TUI
+		bashCmd := exec.Command("bash", "-c", value)
+
+		// Set the working directory to the original user directory
+		if workingDir := os.Getenv("OPENCODE_WORKING_DIR"); workingDir != "" {
+			bashCmd.Dir = workingDir
+		} else {
+			// Fallback to current working directory if env var not set
+			bashCmd.Dir = m.app.Info.Path.Cwd
+		}
+
+		// Clear the editor first
+		updated, clearCmd := m.Clear()
+		m = updated.(*editorComponent)
+
+		// Execute the command asynchronously and capture output properly
+		cmd := tea.Cmd(func() tea.Msg {
+			output, err := bashCmd.CombinedOutput()
+			if err != nil {
+				return app.BashOutputMsg{Output: fmt.Sprintf("$ %s\nError: %v\n%s", value, err, string(output))}
+			}
+			return app.BashOutputMsg{Output: fmt.Sprintf("$ %s\n%s", value, string(output))}
+		})
+		return m, tea.Batch(clearCmd, cmd)
 	}
 
 	if len(value) > 0 && value[len(value)-1] == '\\' {
@@ -539,6 +575,10 @@ func (m *editorComponent) SetValueWithAttachments(value string) {
 
 func (m *editorComponent) SetExitKeyInDebounce(inDebounce bool) {
 	m.exitKeyInDebounce = inDebounce
+}
+
+func (m *editorComponent) SetBashMode(inBashMode bool) {
+	m.isBashMode = inBashMode
 }
 
 func (m *editorComponent) getInterruptKeyText() string {
