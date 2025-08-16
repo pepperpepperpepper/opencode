@@ -76,6 +76,9 @@ List the actual commands that were executed, including:
 ## Current Status
 [What's working, what's broken, what's in progress]
 
+## User Commands and Directives
+[Any explicit user commands about interaction style, approval requirements, or workflow constraints]
+
 ## Progress Since Last Summary
 [If applicable, what was accomplished since the previous summary]
 ```

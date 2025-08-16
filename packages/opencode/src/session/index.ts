@@ -1667,7 +1667,7 @@ ${
     : "No previous summary"
 }
 
-Focus on what was discussed, what actions were taken, which files were modified, and the current state of everything. Pay special attention to any errors, user complaints, or corrections that occurred, and how they were resolved.`,
+Lead with failures and unresolved issues. For each problem discussed, report its actual status: broken, partially fixed, unverified, or genuinely resolved. Be suspicious of any claimed success - require explicit evidence. Document the gap between what was attempted vs. what actually worked. Capture any explicit user commands or directives about interaction style, approval requirements, workflow constraints, or how to proceed with changes.`,
             },
           ],
         },
