@@ -14,13 +14,12 @@
     "packages": [
       "packages/*"
     ],
-    "catalog": {
-      "typescript": "5.8.2",
-      "@types/node": "22.13.9",
-      "zod": "3.25.49",
-      "ai": "5.0.0-beta.21"
-    }
-  },
+     "catalog": {
+       "typescript": "5.8.2",
+       "@types/node": "22.13.9",
+       "zod": "3.25.49",
+       "ai": "5.0.0"
+     }  },
   "devDependencies": {
     "prettier": "3.5.3",
     "sst": "3.17.8"
@@ -41,9 +40,9 @@
   ],
   "patchedDependencies": {},
   "dependencies": {
-    "@ai-sdk/openai-compatible": "0.2.16",
+    "@ai-sdk/openai-compatible": "1.0.7",
     "@tensorflow/tfjs-backend-wasm": "4.22.0",
-    "ai": "4.3.19",
+    "ai": "5.0.0",
     "file-type": "21.0.0"
   }
 }

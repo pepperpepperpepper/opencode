@@ -1,28 +1,36 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "zai" })
 
-export function responseTransformer(response: any) {
+export function responseTransformer(response: any, availableTools?: string[]) {
+  const toolList = availableTools ? availableTools.filter(Boolean).join(", ") : "unknown"
+
   if (response.choices) {
     response.choices.forEach((choice: any) => {
       if (choice.delta) {
         if (choice.delta.tool_calls) {
-          choice.delta.tool_calls = (choice.delta.tool_calls || []).map((tc: any) => {
-            // Lenient fixes: Convert numeric IDs to strings, assign default name if missing
-            if (typeof tc.id === "number") {
-              tc.id = String(tc.id);
-              log.info("Converted numeric tool ID to string", { originalId: tc.id });
-            }
-            if (!tc.function || typeof tc.function.name !== "string" || tc.function.name.length === 0) {
-              tc.function = tc.function || {};
-              tc.function.name = tc.function.name || "unknown_tool"; // Default name to preserve call
-              log.warn("Assigned default name to invalid tool call", { toolCall: tc });
-              choice.delta.content = (choice.delta.content || "") + "\n\n[TOOL WARNING]: Fixed invalid tool call (used default name 'unknown_tool').";
-            }
-            if (!tc.type) tc.type = "function";
-            return tc;
-          }).filter((tc: any) => tc.function.name.length > 0); // Only drop if still invalid after fixes
+          choice.delta.tool_calls = (choice.delta.tool_calls || [])
+            .map((tc: any) => {
+              // Lenient fixes: Convert numeric IDs to strings, assign default name if missing
+              if (typeof tc.id === "number") {
+                tc.id = String(tc.id)
+                log.info("Converted numeric tool ID to string", { originalId: tc.id })
+              }
+              if (!tc.function || typeof tc.function.name !== "string" || tc.function.name.length === 0) {
+                log.warn("Dropping invalid tool call without name", { toolCall: tc })
+                const errorText = `\n\n[TOOL ERROR]: Dropped invalid tool call (missing or empty name). Ensure tool calls specify a valid name from available tools: ${toolList}.`
+                choice.delta.content = (choice.delta.content || "") + errorText
+                return null // Drop this invalid call
+              } else {
+                // Inject debug info for valid tool calls
+                choice.delta.content =
+                  (choice.delta.content || "") +
+                  `\n\n[TOOL DEBUG]: Calling tool '${tc.function.name}' with params: ${JSON.stringify(tc.function.arguments || {})}. Available tools: ${toolList}.`
+              }
+              if (!tc.type) tc.type = "function"
+              return tc
+            })
+            .filter((tc: any) => tc !== null) // Drop nulls from invalid calls
 
           if (choice.delta.tool_calls.length > 0) {
             choice.delta.tool_calls.forEach((tc: any) => {
@@ -32,22 +40,27 @@ export function responseTransformer(response: any) {
               if (!tc.type) tc.type = "function"
             })
           } else {
-            delete choice.delta.tool_calls;
+            delete choice.delta.tool_calls
           }
         }
       } else if (choice.message) {
         if (choice.message.tool_calls) {
-          choice.message.tool_calls = choice.message.tool_calls.filter((tc: any) => {
-            if (tc.function && typeof tc.function.name === "string" && tc.function.name.length > 0) {
-              return true
-            } else {
-              log.warn("Filtering out invalid tool call without name", { toolCall: tc })
-              // Propagate as error content instead of silent drop
-              choice.message.content =
-                (choice.message.content || "") + "\n\n[TOOL ERROR]: Invalid tool call detected (missing name)."
-              return false
-            }
-          })
+          choice.message.tool_calls = choice.message.tool_calls
+            .map((tc: any) => {
+              if (tc.function && typeof tc.function.name === "string" && tc.function.name.length > 0) {
+                // Inject debug info for valid tool calls in non-streaming
+                choice.message.content =
+                  (choice.message.content || "") +
+                  `\n\n[TOOL DEBUG]: Called tool '${tc.function.name}' with params: ${JSON.stringify(tc.function.arguments || {})}. Available tools: ${toolList}.`
+                return tc
+              } else {
+                log.warn("Dropping invalid tool call without name in non-streaming", { toolCall: tc })
+                const errorText = `\n\n[TOOL ERROR]: Dropped invalid tool call (missing or empty name). Ensure tool calls specify a valid name from available tools: ${toolList}.`
+                choice.message.content = (choice.message.content || "") + errorText
+                return null
+              }
+            })
+            .filter((tc: any) => tc !== null)
 
           if (choice.message.tool_calls.length === 0 && !choice.message.content.includes("[TOOL ERROR]")) {
             delete choice.message.tool_calls
@@ -66,18 +79,28 @@ export function requestTransformer(body: string): string {
 
   try {
     const bodyObj = JSON.parse(body)
-bodyObj.thinking = { type: "enabled" }
+    bodyObj.thinking = { type: "enabled" }
     // Safely add detailed tool reminder to system prompt with list of available tools
     try {
-      if (Array.isArray(bodyObj.messages) && bodyObj.messages.length > 0 && bodyObj.messages[0].role === "system" && typeof bodyObj.messages[0].content === "string") {
-        const toolList = bodyObj.tools ? Object.keys(bodyObj.tools).join(", ") : "various tools";
-        bodyObj.messages[0].content += `\n\nAvailable tools: ${toolList}. Remember to use them in your reasoning chain if relevant, specifying name and parameters clearly.`;
-        log.info("Injected tool reminder into system prompt", { toolList });
+      if (
+        Array.isArray(bodyObj.messages) &&
+        bodyObj.messages.length > 0 &&
+        bodyObj.messages[0].role === "system" &&
+        typeof bodyObj.messages[0].content === "string"
+      ) {
+        const toolList = bodyObj.tools
+          ? bodyObj.tools
+              .map((t: any) => t.function?.name)
+              .filter(Boolean)
+              .join(", ")
+          : "various tools"
+        bodyObj.messages[0].content += `\n\nAvailable tools: ${toolList}. During thinking/reasoning, explicitly plan tool use with exact names (e.g., 'I will use bash to run ls'). When calling, use this exact XML format (do not escape arguments, parse as normal text): <xai:function_call name="exact_tool_name"><parameter name="param1">value1</parameter></xai:function_call>`
+        log.info("Injected tool reminder into system prompt", { toolList })
       } else {
-        log.debug("Skipped tool reminder injection - no valid system message found");
+        log.debug("Skipped tool reminder injection - no valid system message found")
       }
     } catch (reminderError: any) {
-      log.warn("Failed to inject tool reminder", { error: reminderError.message || String(reminderError) });
+      log.warn("Failed to inject tool reminder", { error: reminderError.message || String(reminderError) })
     }
     return JSON.stringify(bodyObj)
   } catch (error) {
@@ -90,8 +113,19 @@ bodyObj.thinking = { type: "enabled" }
 }
 
 export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promise<Response> => {
+  let availableTools: string[] | undefined
+
   if (init && init.body) {
-    init.body = requestTransformer(init.body as string)
+    const bodyStr = init.body as string
+    try {
+      const bodyObj = JSON.parse(bodyStr)
+      availableTools = bodyObj.tools ? bodyObj.tools.map((t: any) => t.function?.name).filter(Boolean) : undefined
+    } catch (parseError) {
+      log.warn("Failed to parse request body for tool extraction", {
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+      })
+    }
+    init.body = requestTransformer(bodyStr)
   }
 
   try {
@@ -103,26 +137,30 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
 
     if (contentType?.includes("application/json")) {
       let json
+      let text: string | undefined
       try {
-        const text = await response.text()
+        text = await response.text()
         if (!text || text.trim() === "") {
           throw new Error("Empty response from API")
         }
         json = JSON.parse(text)
       } catch (error) {
-        // Create a proper error response that the AI SDK can handle
         const errorMessage = error instanceof Error ? error.message : String(error)
+        log.error("Failed to parse non-streaming JSON", { error: errorMessage, text: text?.substring(0, 500) })
         const errorResponse = {
-          error: {
-            message: `Failed to parse JSON response: ${errorMessage}`,
-            type: "invalid_json_response",
-            param: null,
-            code: null,
-          },
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                content: `\n\n[RESPONSE ERROR]: Failed to parse JSON: ${errorMessage}. Raw text: ${text?.substring(0, 200) || "empty"}`,
+              },
+              finish_reason: "error",
+            },
+          ],
         }
         return new Response(JSON.stringify(errorResponse), {
-          status: 400,
-          statusText: "Bad Request",
+          status: response.status,
+          statusText: response.statusText,
           headers: response.headers,
         })
       }
@@ -141,7 +179,7 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
         })
       }
 
-      const transformed = responseTransformer(json)
+      const transformed = responseTransformer(json, availableTools)
       return new Response(JSON.stringify(transformed), {
         status: response.status,
         statusText: response.statusText,
@@ -155,7 +193,7 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
       let responseHeaderAdded = false
 
       const transformer = new TransformStream({
-        async transform(chunk, controller) {
+        transform(chunk, controller) {
           const text = new TextDecoder().decode(chunk)
           const lines = text.split("\n")
 
@@ -189,7 +227,10 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
                       // Basic scan for tool-like patterns in reasoning (e.g., "use tool X")
                       const toolMentionMatch = contentAddition.match(/use tool (\w+)/i)
                       if (toolMentionMatch) {
-                        contentAddition += `\n[TOOL REMINDER]: Tool "${toolMentionMatch[1]}" is available - ensure valid call format.`
+                        const mentionedTool = toolMentionMatch[1]
+                        const isValid = availableTools?.includes(mentionedTool) ?? false
+                        const toolList = availableTools?.join(", ") ?? "unknown"
+                        contentAddition += `\n[TOOL REMINDER]: Tool "${mentionedTool}" ${isValid ? "is" : "is NOT"} available. Full list: ${toolList}. Ensure exact name and format when calling.`
                       }
                       if (!reasoningHeaderAdded) {
                         contentAddition = "\n\n### Thinking Process\n" + contentAddition
@@ -204,23 +245,27 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
                   })
                 }
 
-                const transformed = responseTransformer(json)
+                const transformed = responseTransformer(json, availableTools)
                 controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
               } catch (e) {
                 log.error("Error in streaming transform", {
                   error: e instanceof Error ? e.message : String(e),
                   jsonStr,
                 })
-                if (jsonStr && jsonStr.trim().length > 0 && jsonStr.includes("{")) {
-                  const errorResponse = {
-                    error: {
-                      message: `Failed to parse streaming JSON response`,
-                      type: "invalid_json_response",
-                      param: null,
-                      code: null,
-                    },
+                if (jsonStr && jsonStr.trim().length > 0) {
+                  log.error("Attempted to parse invalid JSON chunk", { jsonStr })
+                  const errorDelta = {
+                    choices: [
+                      {
+                        delta: {
+                          content: `\n\n[STREAM ERROR]: Failed to parse chunk: ${e instanceof Error ? e.message : String(e)}. Invalid data: ${jsonStr.substring(0, 200)}`,
+                        },
+                        index: 0,
+                        finish_reason: null,
+                      },
+                    ],
                   }
-                  controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorResponse) + "\n\n"))
+                  controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorDelta) + "\n\n"))
                 } else {
                   incompleteData = jsonStr
                 }
@@ -228,11 +273,18 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
             } else if (line === "" && incompleteData) {
               try {
                 const json = JSON.parse(incompleteData)
-                // Same formatting as above
+                // Same formatting and scanning as above
                 if (json.choices) {
                   json.choices.forEach((choice: any) => {
                     if (choice.delta && choice.delta.reasoning_content) {
                       let contentAddition = choice.delta.reasoning_content
+                      const toolMentionMatch = contentAddition.match(/use tool (\w+)/i)
+                      if (toolMentionMatch) {
+                        const mentionedTool = toolMentionMatch[1]
+                        const isValid = availableTools?.includes(mentionedTool) ?? false
+                        const toolList = availableTools?.join(", ") ?? "unknown"
+                        contentAddition += `\n[TOOL REMINDER]: Tool "${mentionedTool}" ${isValid ? "is" : "is NOT"} available. Full list: ${toolList}. Ensure exact name and format when calling.`
+                      }
                       if (!reasoningHeaderAdded) {
                         contentAddition = "\n\n### Thinking Process\n" + contentAddition
                         reasoningHeaderAdded = true
@@ -245,7 +297,7 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
                     }
                   })
                 }
-                const transformed = responseTransformer(json)
+                const transformed = responseTransformer(json, availableTools)
                 controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
                 incompleteData = ""
               } catch (e) {
@@ -253,17 +305,35 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
                   error: e instanceof Error ? e.message : String(e),
                   incompleteData,
                 })
-                // Still incomplete
+                const errorDelta = {
+                  choices: [
+                    {
+                      delta: {
+                        content: `\n\n[STREAM ERROR]: Failed to parse incomplete data on empty line: ${e instanceof Error ? e.message : String(e)}. Data: ${incompleteData.substring(0, 200)}`,
+                      },
+                      index: 0,
+                      finish_reason: null,
+                    },
+                  ],
+                }
+                controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorDelta) + "\n\n"))
               }
             } else if (incompleteData && line.trim()) {
               incompleteData += line
               try {
                 const json = JSON.parse(incompleteData)
-                // Same formatting
+                // Same formatting and scanning
                 if (json.choices) {
                   json.choices.forEach((choice: any) => {
                     if (choice.delta && choice.delta.reasoning_content) {
                       let contentAddition = choice.delta.reasoning_content
+                      const toolMentionMatch = contentAddition.match(/use tool (\w+)/i)
+                      if (toolMentionMatch) {
+                        const mentionedTool = toolMentionMatch[1]
+                        const isValid = availableTools?.includes(mentionedTool) ?? false
+                        const toolList = availableTools?.join(", ") ?? "unknown"
+                        contentAddition += `\n[TOOL REMINDER]: Tool "${mentionedTool}" ${isValid ? "is" : "is NOT"} available. Full list: ${toolList}. Ensure exact name and format when calling.`
+                      }
                       if (!reasoningHeaderAdded) {
                         contentAddition = "\n\n### Thinking Process\n" + contentAddition
                         reasoningHeaderAdded = true
@@ -276,7 +346,7 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
                     }
                   })
                 }
-                const transformed = responseTransformer(json)
+                const transformed = responseTransformer(json, availableTools)
                 controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
                 incompleteData = ""
               } catch (e) {
@@ -284,7 +354,18 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
                   error: e instanceof Error ? e.message : String(e),
                   incompleteData,
                 })
-                // Still incomplete
+                const errorDelta = {
+                  choices: [
+                    {
+                      delta: {
+                        content: `\n\n[STREAM ERROR]: Failed to parse incomplete data: ${e instanceof Error ? e.message : String(e)}. Data: ${incompleteData.substring(0, 200)}`,
+                      },
+                      index: 0,
+                      finish_reason: null,
+                    },
+                  ],
+                }
+                controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorDelta) + "\n\n"))
               }
             } else if (line === "") {
               controller.enqueue(new TextEncoder().encode("\n"))
@@ -298,11 +379,18 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
           if (incompleteData) {
             try {
               const json = JSON.parse(incompleteData)
-              // Same formatting in flush
+              // Same formatting and scanning in flush
               if (json.choices) {
                 json.choices.forEach((choice: any) => {
                   if (choice.delta && choice.delta.reasoning_content) {
                     let contentAddition = choice.delta.reasoning_content
+                    const toolMentionMatch = contentAddition.match(/use tool (\w+)/i)
+                    if (toolMentionMatch) {
+                      const mentionedTool = toolMentionMatch[1]
+                      const isValid = availableTools?.includes(mentionedTool) ?? false
+                      const toolList = availableTools?.join(", ") ?? "unknown"
+                      contentAddition += `\n[TOOL REMINDER]: Tool "${mentionedTool}" ${isValid ? "is" : "is NOT"} available. Full list: ${toolList}. Ensure exact name and format when calling.`
+                    }
                     if (!reasoningHeaderAdded) {
                       contentAddition = "\n\n### Thinking Process\n" + contentAddition
                       reasoningHeaderAdded = true
@@ -315,48 +403,45 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
                   }
                 })
               }
-              const transformed = responseTransformer(json)
+              const transformed = responseTransformer(json, availableTools)
               controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
             } catch (e) {
               log.error("Error in streaming flush", {
                 error: e instanceof Error ? e.message : String(e),
                 incompleteData,
               })
-              const errorResponse = {
-                error: {
-                  message: "Incomplete JSON response received",
-                  type: "incomplete_json_response",
-                  param: null,
-                  code: null,
-                },
+              const errorDelta = {
+                choices: [
+                  {
+                    delta: {
+                      content: `\n\n[STREAM ERROR]: Incomplete JSON in flush: ${e instanceof Error ? e.message : String(e)}. Data: ${incompleteData.substring(0, 200)}`,
+                    },
+                    index: 0,
+                    finish_reason: "error",
+                  },
+                ],
               }
-              controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorResponse) + "\n\n"))
+              controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorDelta) + "\n\n"))
+              controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
             }
           }
         },
       })
 
       const transformedBody = response.body.pipeThrough(transformer)
+
       return new Response(transformedBody, {
         status: response.status,
         statusText: response.statusText,
         headers: response.headers,
       })
     }
+
     return response
   } catch (error) {
-    log.error("Error in glm45Fetch", { error: error instanceof Error ? error.message : String(error) })
-    return new Response(JSON.stringify({ error: "Internal error" }), { status: 500 })
+    log.error("GLM45 fetch error", {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    throw error
   }
-}
-
-export function createZaiProvider(options: { apiKey: string; baseURL?: string } = { apiKey: "" }) {
-  const baseURL = options.baseURL || "https://api.z.ai/api/paas/v4"
-
-  return createOpenAICompatible({
-    name: "zai",
-    baseURL,
-    apiKey: options.apiKey,
-    fetch: glm45Fetch as any, // Suppress type error for Bun if needed
-  })
 }
