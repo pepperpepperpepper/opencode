@@ -9,28 +9,62 @@ export function responseTransformer(response: any, availableTools?: string[]) {
     response.choices.forEach((choice: any) => {
       if (choice.delta) {
         if (choice.delta.tool_calls) {
-          choice.delta.tool_calls = (choice.delta.tool_calls || [])
-            .map((tc: any) => {
-              // Lenient fixes: Convert numeric IDs to strings, assign default name if missing
-              if (typeof tc.id === "number") {
-                tc.id = String(tc.id)
-                log.info("Converted numeric tool ID to string", { originalId: tc.id })
+          const validCalls: any[] = []
+          const invalidCalls: any[] = []
+          
+          choice.delta.tool_calls.forEach((tc: any) => {
+            // Convert numeric IDs to strings
+            if (typeof tc.id === "number") {
+              tc.id = String(tc.id)
+              log.info("Converted numeric tool ID to string", { originalId: tc.id })
+            }
+            if (!tc.type) tc.type = "function"
+            
+            // Handle GLM-4.5's malformed tool calls - missing function.name but has function.arguments
+            if (tc.function && !tc.function.name && tc.function.arguments) {
+              // Try to infer tool name from arguments or context
+              try {
+                const args = JSON.parse(tc.function.arguments)
+                // Look for common patterns in arguments that might indicate the tool
+                if (args.command || args.cmd) {
+                  tc.function.name = "bash"
+                  log.info("Inferred tool name 'bash' from arguments", { arguments: tc.function.arguments })
+                } else if (args.path || args.pattern || args.query) {
+                  tc.function.name = "text_search"  
+                  log.info("Inferred tool name 'text_search' from arguments", { arguments: tc.function.arguments })
+                } else if (args.content || args.file_path) {
+                  tc.function.name = "write"
+                  log.info("Inferred tool name 'write' from arguments", { arguments: tc.function.arguments })
+                } else {
+                  // Default to bash for empty args as it's the most common tool
+                  tc.function.name = "bash"
+                  tc.function.arguments = JSON.stringify({ command: "echo 'Please specify a valid command'" })
+                  log.info("Set default tool name 'bash' for empty arguments")
+                }
+              } catch (e) {
+                // If arguments aren't valid JSON, default to bash
+                tc.function.name = "bash" 
+                tc.function.arguments = JSON.stringify({ command: "echo 'Please specify a valid command'" })
+                log.warn("Failed to parse arguments, defaulting to bash", { error: e instanceof Error ? e.message : String(e) })
               }
-              if (!tc.function || typeof tc.function.name !== "string" || tc.function.name.length === 0) {
-                log.warn("Dropping invalid tool call without name", { toolCall: tc })
-                const errorText = `\n\n[TOOL ERROR]: Dropped invalid tool call (missing or empty name). Ensure tool calls specify a valid name from available tools: ${toolList}.`
-                choice.delta.content = (choice.delta.content || "") + errorText
-                return null // Drop this invalid call
-              } else {
-                // Inject debug info for valid tool calls
-                choice.delta.content =
-                  (choice.delta.content || "") +
-                  `\n\n[TOOL DEBUG]: Calling tool '${tc.function.name}' with params: ${JSON.stringify(tc.function.arguments || {})}. Available tools: ${toolList}.`
-              }
-              if (!tc.type) tc.type = "function"
-              return tc
-            })
-            .filter((tc: any) => tc !== null) // Drop nulls from invalid calls
+            }
+            
+            // Validate function name exists and is a string
+            if (!tc.function || typeof tc.function.name !== "string" || tc.function.name.trim() === "") {
+              invalidCalls.push(tc)
+              log.warn("Invalid tool call - missing or invalid function name", { toolCall: tc })
+            } else {
+              validCalls.push(tc)
+            }
+          })
+          
+          choice.delta.tool_calls = validCalls
+          
+          // Add error message to content for invalid calls
+          if (invalidCalls.length > 0) {
+            const errorMsg = `\n\nError: Invalid tool calls detected (${invalidCalls.length}). Please use valid tool names from: ${toolList}. Try rephrasing your request without tool calls.`
+            choice.delta.content = (choice.delta.content || "") + errorMsg
+          }
 
           if (choice.delta.tool_calls.length > 0) {
             choice.delta.tool_calls.forEach((tc: any) => {
@@ -45,25 +79,56 @@ export function responseTransformer(response: any, availableTools?: string[]) {
         }
       } else if (choice.message) {
         if (choice.message.tool_calls) {
-          choice.message.tool_calls = choice.message.tool_calls
-            .map((tc: any) => {
-              if (tc.function && typeof tc.function.name === "string" && tc.function.name.length > 0) {
-                // Inject debug info for valid tool calls in non-streaming
-                choice.message.content =
-                  (choice.message.content || "") +
-                  `\n\n[TOOL DEBUG]: Called tool '${tc.function.name}' with params: ${JSON.stringify(tc.function.arguments || {})}. Available tools: ${toolList}.`
-                return tc
-              } else {
-                log.warn("Dropping invalid tool call without name in non-streaming", { toolCall: tc })
-                const errorText = `\n\n[TOOL ERROR]: Dropped invalid tool call (missing or empty name). Ensure tool calls specify a valid name from available tools: ${toolList}.`
-                choice.message.content = (choice.message.content || "") + errorText
-                return null
+          const validCalls: any[] = []
+          const invalidCalls: any[] = []
+          
+          choice.message.tool_calls.forEach((tc: any) => {
+            if (!tc.type) tc.type = "function"
+            
+            // Handle GLM-4.5's malformed tool calls - missing function.name but has function.arguments
+            if (tc.function && !tc.function.name && tc.function.arguments) {
+              // Try to infer tool name from arguments or context
+              try {
+                const args = JSON.parse(tc.function.arguments)
+                // Look for common patterns in arguments that might indicate the tool
+                if (args.command || args.cmd) {
+                  tc.function.name = "bash"
+                  log.info("Inferred tool name 'bash' from message arguments", { arguments: tc.function.arguments })
+                } else if (args.path || args.pattern || args.query) {
+                  tc.function.name = "text_search"  
+                  log.info("Inferred tool name 'text_search' from message arguments", { arguments: tc.function.arguments })
+                } else if (args.content || args.file_path) {
+                  tc.function.name = "write"
+                  log.info("Inferred tool name 'write' from message arguments", { arguments: tc.function.arguments })
+                } else {
+                  // Default to bash for empty args as it's the most common tool
+                  tc.function.name = "bash"
+                  tc.function.arguments = JSON.stringify({ command: "echo 'Please specify a valid command'" })
+                  log.info("Set default tool name 'bash' for empty message arguments")
+                }
+              } catch (e) {
+                // If arguments aren't valid JSON, default to bash
+                tc.function.name = "bash" 
+                tc.function.arguments = JSON.stringify({ command: "echo 'Please specify a valid command'" })
+                log.warn("Failed to parse message arguments, defaulting to bash", { error: e instanceof Error ? e.message : String(e) })
               }
-            })
-            .filter((tc: any) => tc !== null)
-
-          if (choice.message.tool_calls.length === 0 && !choice.message.content.includes("[TOOL ERROR]")) {
-            delete choice.message.tool_calls
+            }
+            
+            // Validate function name exists and is a string
+            if (!tc.function || typeof tc.function.name !== "string" || tc.function.name.trim() === "") {
+              invalidCalls.push(tc)
+              log.warn("Invalid tool call in message - missing or invalid function name", { toolCall: tc })
+            } else {
+              validCalls.push(tc)
+            }
+          })
+          
+          choice.message.tool_calls = validCalls
+          
+          // Add error message to content for invalid calls
+          if (invalidCalls.length > 0) {
+            const errorMsg = `\n\nError: Invalid tool calls detected (${invalidCalls.length}). Please use valid tool names from: ${toolList}. Try rephrasing your request without tool calls.`
+            choice.message.content = (choice.message.content || "") + errorMsg
           }
         }
       }
@@ -94,7 +159,7 @@ export function requestTransformer(body: string): string {
               .filter(Boolean)
               .join(", ")
           : "various tools"
-        bodyObj.messages[0].content += `\n\nAvailable tools: ${toolList}. During thinking/reasoning, explicitly plan tool use with exact names (e.g., 'I will use bash to run ls'). When calling, use this exact XML format (do not escape arguments, parse as normal text): <xai:function_call name="exact_tool_name"><parameter name="param1">value1</parameter></xai:function_call>`
+        bodyObj.messages[0].content += `\n\nAvailable tools: ${toolList}. When you need to use a tool, call it using the standard OpenAI tool call format. Always specify the exact tool name from the available tools list. Example: to list files, use the "bash" tool with command "ls".`
         log.info("Injected tool reminder into system prompt", { toolList })
       } else {
         log.debug("Skipped tool reminder injection - no valid system message found")
