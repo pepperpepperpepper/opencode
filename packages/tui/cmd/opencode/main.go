@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	flag "github.com/spf13/pflag"
 	"github.com/sst/opencode-sdk-go"
@@ -18,7 +19,7 @@ import (
 	"github.com/sst/opencode/internal/app"
 	"github.com/sst/opencode/internal/clipboard"
 	"github.com/sst/opencode/internal/tui"
-	"github.com/sst/opencode/internal/util"
+	"path/filepath"
 )
 
 var Version = "dev"
@@ -81,10 +82,31 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	apiHandler := util.NewAPILogHandler(ctx, httpClient, "tui", slog.LevelDebug)
-	logger := slog.New(apiHandler)
-	slog.SetDefault(logger)
-
+	// Set up file logging to tui.log
+	homeDir, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get user home: %v\n", homeErr)
+		os.Exit(1)
+	}
+	logDir := filepath.Join(homeDir, ".local", "share", "opencode-unchained", "log")
+	if mkdirErr := os.MkdirAll(logDir, 0755); mkdirErr != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create log dir: %v\n", mkdirErr)
+		os.Exit(1)
+	}
+	logPath := filepath.Join(logDir, "tui.log")
+	logFile, openErr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if openErr != nil {
+		fmt.Fprintf(os.Stderr, "Failed to open log file: %v\n", openErr)
+		os.Exit(1)
+	}
+	// Redirect stderr to log file
+	os.Stderr = logFile
+	defer logFile.Close()
+	// Set up slog to use the same file
+	handler := slog.NewTextHandler(logFile, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})
+	slog.SetDefault(slog.New(handler))
 	slog.Debug("TUI launched", "app", appInfoStr, "modes", modesStr)
 
 	go func() {

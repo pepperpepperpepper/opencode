@@ -13,7 +13,6 @@ import { Global } from "../global"
  * - OPENCODE_DEBUG: Enable all debug logging
  */
 export namespace DebugLog {
-  let debugFile: fs.WriteStream | null = null
   let debugPath: string = ""
   let isEnabled: boolean = false
   let streamEnabled: boolean = false
@@ -46,19 +45,18 @@ export namespace DebugLog {
       const dir = path.join(Global.Path.data, "log")
       fs.mkdirSync(dir, { recursive: true })
 
-      debugPath = path.join(dir, "session-debug.log")
+      debugPath = path.join(dir, `session-debug-${Date.now()}.log`)
 
-      // Create or append to the debug log file
-      debugFile = fs.createWriteStream(debugPath, { flags: "a" })
-
-      // Write header
-      debugFile.write(`\n${"=".repeat(80)}\n`)
-      debugFile.write(`Session Debug Log Started: ${new Date().toISOString()}\n`)
-      debugFile.write(`Debug Flags:\n`)
-      debugFile.write(`  Session Errors: ${sessionEnabled}\n`)
-      debugFile.write(`  Stream Events: ${streamEnabled}\n`)
-      debugFile.write(`  Tool Calls: ${toolsEnabled}\n`)
-      debugFile.write(`${"=".repeat(80)}\n\n`)
+      // Write header synchronously
+      const header =
+        `\n${"=".repeat(80)}\n` +
+        `Session Debug Log Started: ${new Date().toISOString()}\n` +
+        `Debug Flags:\n` +
+        `  Session Errors: ${sessionEnabled}\n` +
+        `  Stream Events: ${streamEnabled}\n` +
+        `  Tool Calls: ${toolsEnabled}\n` +
+        `${"=".repeat(80)}\n\n`
+      fs.appendFileSync(debugPath, header, "utf8")
 
       console.log(`📝 Debug logging enabled: ${debugPath}`)
       if (sessionEnabled) console.log(`   ✓ Session error logging enabled`)
@@ -81,15 +79,17 @@ export namespace DebugLog {
   }
 
   function writeLog(level: string, category: string, message: string, data?: any) {
-    if (!debugFile || !isEnabled) return
+    if (!debugPath || !isEnabled) return
 
     const timestamp = new Date().toISOString()
 
-    debugFile.write(`[${timestamp}] [${level}] [${category}] ${message}\n`)
+    let content = `[${timestamp}] [${level}] [${category}] ${message}\n`
     if (data) {
-      debugFile.write(`DATA: ${JSON.stringify(data, null, 2)}\n`)
+      content += `DATA: ${JSON.stringify(data, null, 2)}\n`
     }
-    debugFile.write("\n")
+    content += "\n"
+
+    fs.appendFileSync(debugPath, content, "utf8")
   }
 
   export function info(category: string, message: string, data?: any) {
@@ -149,11 +149,10 @@ export namespace DebugLog {
   }
 
   export function close() {
-    if (debugFile) {
-      debugFile.write(`\nSession Debug Log Ended: ${new Date().toISOString()}\n`)
-      debugFile.write(`${"=".repeat(80)}\n`)
-      debugFile.end()
-      debugFile = null
-    }
+    if (!debugPath) return
+
+    const footer = `\nSession Debug Log Ended: ${new Date().toISOString()}\n` + `${"=".repeat(80)}\n`
+
+    fs.appendFileSync(debugPath, footer, "utf8")
   }
 }

@@ -7,47 +7,49 @@ export function responseTransformer(response: any) {
   if (response.choices) {
     response.choices.forEach((choice: any) => {
       if (choice.delta) {
-        if (choice.delta.reasoning_content) {
-          // Simply remove reasoning content from delta to avoid display issues
-          // The reasoning is already logged internally
-          delete choice.delta.reasoning_content
-        }
         if (choice.delta.tool_calls) {
-          choice.delta.tool_calls = choice.delta.tool_calls.filter((tc: any) => {
-            if (tc.function && typeof tc.function.name === "string" && tc.function.name.length > 0) {
-              return true
-            } else {
-              log.warn("Filtering out invalid tool call without name", { toolCall: tc })
-              return false
+          choice.delta.tool_calls = (choice.delta.tool_calls || []).map((tc: any) => {
+            // Lenient fixes: Convert numeric IDs to strings, assign default name if missing
+            if (typeof tc.id === "number") {
+              tc.id = String(tc.id);
+              log.info("Converted numeric tool ID to string", { originalId: tc.id });
             }
-          })
-          choice.delta.tool_calls.forEach((tc: any) => {
-            if (!tc.id) {
-              tc.id = `call_${Date.now()}_${Math.random().toString(36).slice(2)}`
+            if (!tc.function || typeof tc.function.name !== "string" || tc.function.name.length === 0) {
+              tc.function = tc.function || {};
+              tc.function.name = tc.function.name || "unknown_tool"; // Default name to preserve call
+              log.warn("Assigned default name to invalid tool call", { toolCall: tc });
+              choice.delta.content = (choice.delta.content || "") + "\n\n[TOOL WARNING]: Fixed invalid tool call (used default name 'unknown_tool').";
             }
-            if (!tc.type) tc.type = "function"
-          })
-          if (choice.delta.tool_calls.length === 0) {
-            delete choice.delta.tool_calls
+            if (!tc.type) tc.type = "function";
+            return tc;
+          }).filter((tc: any) => tc.function.name.length > 0); // Only drop if still invalid after fixes
+
+          if (choice.delta.tool_calls.length > 0) {
+            choice.delta.tool_calls.forEach((tc: any) => {
+              if (!tc.id) {
+                tc.id = `call_${Date.now()}_${Math.random().toString(36).slice(2)}`
+              }
+              if (!tc.type) tc.type = "function"
+            })
+          } else {
+            delete choice.delta.tool_calls;
           }
         }
       } else if (choice.message) {
-        if (choice.message.reasoning_content) {
-          // For non-streaming responses, also just remove reasoning content
-          // to avoid display issues - it's logged internally
-          delete choice.message.reasoning_content
-        }
         if (choice.message.tool_calls) {
           choice.message.tool_calls = choice.message.tool_calls.filter((tc: any) => {
             if (tc.function && typeof tc.function.name === "string" && tc.function.name.length > 0) {
               return true
             } else {
               log.warn("Filtering out invalid tool call without name", { toolCall: tc })
+              // Propagate as error content instead of silent drop
+              choice.message.content =
+                (choice.message.content || "") + "\n\n[TOOL ERROR]: Invalid tool call detected (missing name)."
               return false
             }
           })
 
-          if (choice.message.tool_calls.length === 0) {
+          if (choice.message.tool_calls.length === 0 && !choice.message.content.includes("[TOOL ERROR]")) {
             delete choice.message.tool_calls
           }
         }
@@ -64,7 +66,19 @@ export function requestTransformer(body: string): string {
 
   try {
     const bodyObj = JSON.parse(body)
-    bodyObj.thinking = { type: "enabled" }
+bodyObj.thinking = { type: "enabled" }
+    // Safely add detailed tool reminder to system prompt with list of available tools
+    try {
+      if (Array.isArray(bodyObj.messages) && bodyObj.messages.length > 0 && bodyObj.messages[0].role === "system" && typeof bodyObj.messages[0].content === "string") {
+        const toolList = bodyObj.tools ? Object.keys(bodyObj.tools).join(", ") : "various tools";
+        bodyObj.messages[0].content += `\n\nAvailable tools: ${toolList}. Remember to use them in your reasoning chain if relevant, specifying name and parameters clearly.`;
+        log.info("Injected tool reminder into system prompt", { toolList });
+      } else {
+        log.debug("Skipped tool reminder injection - no valid system message found");
+      }
+    } catch (reminderError: any) {
+      log.warn("Failed to inject tool reminder", { error: reminderError.message || String(reminderError) });
+    }
     return JSON.stringify(bodyObj)
   } catch (error) {
     log.error("Failed to parse request body as JSON", {
@@ -80,165 +94,260 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
     init.body = requestTransformer(init.body as string)
   }
 
-  const response = await fetch(input, init)
+  try {
+    const response = await fetch(input, init)
 
-  if (!response.ok) return response
+    if (!response.ok) return response
 
-  const contentType = response.headers.get("content-type")
+    const contentType = response.headers.get("content-type")
 
-  if (contentType?.includes("application/json")) {
-    let json
-    try {
-      const text = await response.text()
-      if (!text || text.trim() === "") {
-        throw new Error("Empty response from API")
+    if (contentType?.includes("application/json")) {
+      let json
+      try {
+        const text = await response.text()
+        if (!text || text.trim() === "") {
+          throw new Error("Empty response from API")
+        }
+        json = JSON.parse(text)
+      } catch (error) {
+        // Create a proper error response that the AI SDK can handle
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorResponse = {
+          error: {
+            message: `Failed to parse JSON response: ${errorMessage}`,
+            type: "invalid_json_response",
+            param: null,
+            code: null,
+          },
+        }
+        return new Response(JSON.stringify(errorResponse), {
+          status: 400,
+          statusText: "Bad Request",
+          headers: response.headers,
+        })
       }
-      json = JSON.parse(text)
-    } catch (error) {
-      // Create a proper error response that the AI SDK can handle
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      const errorResponse = {
-        error: {
-          message: `Failed to parse JSON response: ${errorMessage}`,
-          type: "invalid_json_response",
-          param: null,
-          code: null,
-        },
+
+      // Format for non-streaming
+      if (json.choices) {
+        json.choices.forEach((choice: any) => {
+          if (choice.message && choice.message.reasoning_content) {
+            choice.message.content =
+              "\n\n### Thinking Process\n" +
+              choice.message.reasoning_content +
+              "\n\n### Response\n" +
+              (choice.message.content || "")
+            delete choice.message.reasoning_content
+          }
+        })
       }
-      return new Response(JSON.stringify(errorResponse), {
-        status: 400,
-        statusText: "Bad Request",
+
+      const transformed = responseTransformer(json)
+      return new Response(JSON.stringify(transformed), {
+        status: response.status,
+        statusText: response.statusText,
         headers: response.headers,
       })
-    }
+    } else if (contentType?.includes("text/event-stream")) {
+      if (!response.body) return response
 
-    const transformed = responseTransformer(json)
-    return new Response(JSON.stringify(transformed), {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    })
-  } else if (contentType?.includes("text/event-stream")) {
-    if (!response.body) return response
+      let incompleteData = ""
+      let reasoningHeaderAdded = false
+      let responseHeaderAdded = false
 
-    // Buffer for incomplete JSON objects that span multiple chunks
-    let incompleteData = ""
+      const transformer = new TransformStream({
+        async transform(chunk, controller) {
+          const text = new TextDecoder().decode(chunk)
+          const lines = text.split("\n")
 
-    const transformer = new TransformStream({
-      async transform(chunk, controller) {
-        const text = new TextDecoder().decode(chunk)
-        const lines = text.split("\n")
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i]
 
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i]
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6)
 
-          // Handle SSE data lines
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6)
-
-            // Handle [DONE] signal
-            if (data === "[DONE]") {
-              // Clear any incomplete data buffer
-              incompleteData = ""
-              controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
-              continue
-            }
-
-            // Try to parse the JSON, handling multi-line objects
-            let jsonStr = incompleteData + data
-            incompleteData = "" // Reset buffer
-
-            try {
-              if (!jsonStr || jsonStr.trim() === "") {
+              if (data === "[DONE]") {
+                incompleteData = ""
+                controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
                 continue
               }
 
-              const json = JSON.parse(jsonStr)
-              const transformed = responseTransformer(json)
-              controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
-            } catch (e) {
-              // Check if this might be a complete but invalid JSON rather than incomplete
-              if (jsonStr && jsonStr.trim().length > 0 && jsonStr.includes("{")) {
-                // Create error response for invalid JSON
-                const errorResponse = {
-                  error: {
-                    message: `Failed to parse streaming JSON response`,
-                    type: "invalid_json_response",
-                    param: null,
-                    code: null,
-                  },
+              let jsonStr = incompleteData + data
+              incompleteData = ""
+
+              try {
+                if (!jsonStr || jsonStr.trim() === "") {
+                  continue
                 }
-                controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorResponse) + "\n\n"))
-              } else {
-                // JSON is incomplete, buffer it for the next chunk
-                incompleteData = jsonStr
+
+                const json = JSON.parse(jsonStr)
+
+                // Format reasoning for streaming and scan for potential tool mentions
+                if (json.choices) {
+                  json.choices.forEach((choice: any) => {
+                    if (choice.delta && choice.delta.reasoning_content) {
+                      let contentAddition = choice.delta.reasoning_content
+                      // Basic scan for tool-like patterns in reasoning (e.g., "use tool X")
+                      const toolMentionMatch = contentAddition.match(/use tool (\w+)/i)
+                      if (toolMentionMatch) {
+                        contentAddition += `\n[TOOL REMINDER]: Tool "${toolMentionMatch[1]}" is available - ensure valid call format.`
+                      }
+                      if (!reasoningHeaderAdded) {
+                        contentAddition = "\n\n### Thinking Process\n" + contentAddition
+                        reasoningHeaderAdded = true
+                      }
+                      choice.delta.content = (choice.delta.content || "") + contentAddition
+                      delete choice.delta.reasoning_content
+                    } else if (reasoningHeaderAdded && choice.delta && choice.delta.content && !responseHeaderAdded) {
+                      choice.delta.content = "\n\n### Response\n" + (choice.delta.content || "")
+                      responseHeaderAdded = true
+                    }
+                  })
+                }
+
+                const transformed = responseTransformer(json)
+                controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
+              } catch (e) {
+                log.error("Error in streaming transform", {
+                  error: e instanceof Error ? e.message : String(e),
+                  jsonStr,
+                })
+                if (jsonStr && jsonStr.trim().length > 0 && jsonStr.includes("{")) {
+                  const errorResponse = {
+                    error: {
+                      message: `Failed to parse streaming JSON response`,
+                      type: "invalid_json_response",
+                      param: null,
+                      code: null,
+                    },
+                  }
+                  controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorResponse) + "\n\n"))
+                } else {
+                  incompleteData = jsonStr
+                }
               }
+            } else if (line === "" && incompleteData) {
+              try {
+                const json = JSON.parse(incompleteData)
+                // Same formatting as above
+                if (json.choices) {
+                  json.choices.forEach((choice: any) => {
+                    if (choice.delta && choice.delta.reasoning_content) {
+                      let contentAddition = choice.delta.reasoning_content
+                      if (!reasoningHeaderAdded) {
+                        contentAddition = "\n\n### Thinking Process\n" + contentAddition
+                        reasoningHeaderAdded = true
+                      }
+                      choice.delta.content = (choice.delta.content || "") + contentAddition
+                      delete choice.delta.reasoning_content
+                    } else if (reasoningHeaderAdded && choice.delta && choice.delta.content && !responseHeaderAdded) {
+                      choice.delta.content = "\n\n### Response\n" + (choice.delta.content || "")
+                      responseHeaderAdded = true
+                    }
+                  })
+                }
+                const transformed = responseTransformer(json)
+                controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
+                incompleteData = ""
+              } catch (e) {
+                log.error("Error in streaming empty line handler", {
+                  error: e instanceof Error ? e.message : String(e),
+                  incompleteData,
+                })
+                // Still incomplete
+              }
+            } else if (incompleteData && line.trim()) {
+              incompleteData += line
+              try {
+                const json = JSON.parse(incompleteData)
+                // Same formatting
+                if (json.choices) {
+                  json.choices.forEach((choice: any) => {
+                    if (choice.delta && choice.delta.reasoning_content) {
+                      let contentAddition = choice.delta.reasoning_content
+                      if (!reasoningHeaderAdded) {
+                        contentAddition = "\n\n### Thinking Process\n" + contentAddition
+                        reasoningHeaderAdded = true
+                      }
+                      choice.delta.content = (choice.delta.content || "") + contentAddition
+                      delete choice.delta.reasoning_content
+                    } else if (reasoningHeaderAdded && choice.delta && choice.delta.content && !responseHeaderAdded) {
+                      choice.delta.content = "\n\n### Response\n" + (choice.delta.content || "")
+                      responseHeaderAdded = true
+                    }
+                  })
+                }
+                const transformed = responseTransformer(json)
+                controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
+                incompleteData = ""
+              } catch (e) {
+                log.error("Error in streaming incomplete data handler", {
+                  error: e instanceof Error ? e.message : String(e),
+                  incompleteData,
+                })
+                // Still incomplete
+              }
+            } else if (line === "") {
+              controller.enqueue(new TextEncoder().encode("\n"))
+            } else if (!line.startsWith("data: ")) {
+              controller.enqueue(new TextEncoder().encode(line + "\n"))
             }
-          } else if (line === "" && incompleteData) {
-            // Empty line after incomplete data might mean we should try parsing again
+          }
+        },
+
+        flush(controller) {
+          if (incompleteData) {
             try {
               const json = JSON.parse(incompleteData)
+              // Same formatting in flush
+              if (json.choices) {
+                json.choices.forEach((choice: any) => {
+                  if (choice.delta && choice.delta.reasoning_content) {
+                    let contentAddition = choice.delta.reasoning_content
+                    if (!reasoningHeaderAdded) {
+                      contentAddition = "\n\n### Thinking Process\n" + contentAddition
+                      reasoningHeaderAdded = true
+                    }
+                    choice.delta.content = (choice.delta.content || "") + contentAddition
+                    delete choice.delta.reasoning_content
+                  } else if (reasoningHeaderAdded && choice.delta && choice.delta.content && !responseHeaderAdded) {
+                    choice.delta.content = "\n\n### Response\n" + (choice.delta.content || "")
+                    responseHeaderAdded = true
+                  }
+                })
+              }
               const transformed = responseTransformer(json)
               controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
-              incompleteData = ""
             } catch (e) {
-              // Still incomplete, keep buffering
+              log.error("Error in streaming flush", {
+                error: e instanceof Error ? e.message : String(e),
+                incompleteData,
+              })
+              const errorResponse = {
+                error: {
+                  message: "Incomplete JSON response received",
+                  type: "incomplete_json_response",
+                  param: null,
+                  code: null,
+                },
+              }
+              controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorResponse) + "\n\n"))
             }
-          } else if (incompleteData && line.trim()) {
-            // If we have incomplete data and this line doesn't start with "data:",
-            // it might be a continuation of the JSON
-            incompleteData += line
-
-            // Try to parse the accumulated data
-            try {
-              const json = JSON.parse(incompleteData)
-              const transformed = responseTransformer(json)
-              controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
-              incompleteData = ""
-            } catch (e) {
-              // Still incomplete, keep buffering
-            }
-          } else if (line === "") {
-            // Pass through empty lines when not buffering
-            controller.enqueue(new TextEncoder().encode("\n"))
-          } else if (!line.startsWith("data: ")) {
-            // Pass through non-data lines (like event: lines)
-            controller.enqueue(new TextEncoder().encode(line + "\n"))
           }
-        }
-      },
+        },
+      })
 
-      flush(controller) {
-        // Handle any remaining incomplete data at the end of the stream
-        if (incompleteData) {
-          try {
-            const json = JSON.parse(incompleteData)
-            const transformed = responseTransformer(json)
-            controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
-          } catch (e) {
-            // Create error response for incomplete JSON at end of stream
-            const errorResponse = {
-              error: {
-                message: "Incomplete JSON response received",
-                type: "incomplete_json_response",
-                param: null,
-                code: null,
-              },
-            }
-            controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorResponse) + "\n\n"))
-          }
-        }
-      },
-    })
-
-    const transformedBody = response.body.pipeThrough(transformer)
-    return new Response(transformedBody, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    })
+      const transformedBody = response.body.pipeThrough(transformer)
+      return new Response(transformedBody, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      })
+    }
+    return response
+  } catch (error) {
+    log.error("Error in glm45Fetch", { error: error instanceof Error ? error.message : String(error) })
+    return new Response(JSON.stringify({ error: "Internal error" }), { status: 500 })
   }
-  return response
 }
 
 export function createZaiProvider(options: { apiKey: string; baseURL?: string } = { apiKey: "" }) {

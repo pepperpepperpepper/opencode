@@ -10,6 +10,7 @@ import { bootstrap } from "../bootstrap"
 import { MessageV2 } from "../../session/message-v2"
 import { Mode } from "../../session/mode"
 import { Identifier } from "../../id/id"
+import { Log } from "../../util/log"
 
 const TOOL: Record<string, [string, string]> = {
   todowrite: ["Todo", UI.Style.TEXT_WARNING_BOLD],
@@ -54,13 +55,14 @@ export const RunCommand = cmd({
         alias: ["m"],
         describe: "model to use in the format of provider/model",
       })
+      
       .option("mode", {
         type: "string",
         describe: "mode to use",
       })
   },
-  handler: async (args) => {
-    let message = args.message.join(" ")
+   handler: async (args) => {
+     Log.Default.info("TEST_LOG", { time: Date.now() });    let message = args.message.join(" ")
 
     if (!process.stdin.isTTY) message += "\n" + (await Bun.stdin.text())
 
@@ -84,29 +86,25 @@ export const RunCommand = cmd({
         return
       }
 
-      UI.empty()
-      UI.println(UI.logo())
-      UI.empty()
+       Log.Default.info("logo", { logo: UI.logo() });
 
-      const cfg = await Config.get()
-      if (cfg.share === "auto" || Flag.OPENCODE_AUTO_SHARE || args.share) {
-        try {
-          await Session.share(session.id)
-          UI.println(UI.Style.TEXT_INFO_BOLD + "~  https://opencode.ai/s/" + session.id.slice(-8))
-        } catch (error) {
-          if (error instanceof Error && error.message.includes("disabled")) {
-            UI.println(UI.Style.TEXT_DANGER_BOLD + "!  " + error.message)
-          } else {
-            throw error
-          }
-        }
-      }
-      UI.empty()
+       const cfg = await Config.get();
+       if (cfg.share === "auto" || Flag.OPENCODE_AUTO_SHARE || args.share) {
+         try {
+           await Session.share(session.id);
+           Log.Default.info("share_link", { link: "https://opencode.ai/s/" + session.id.slice(-8) });
+         } catch (error) {
+           if (error instanceof Error && error.message.includes("disabled")) {
+             Log.Default.info("share_disabled", { error: error.message });
+           } else {
+             throw error;
+           }
+         }
+       }
 
-      const { providerID, modelID } = args.model ? Provider.parseModel(args.model) : await Provider.defaultModel()
-      UI.println(UI.Style.TEXT_NORMAL_BOLD + "@ ", UI.Style.TEXT_NORMAL + `${providerID}/${modelID}`)
-      UI.empty()
-
+       Log.Default.info("model", { model: args.model });
+       const { providerID, modelID } = args.model ? Provider.parseModel(args.model) : await Provider.defaultModel();
+       Log.Default.info("provider_model", { providerID, modelID });
       function printEvent(color: string, type: string, title: string) {
         UI.println(
           color + `|`,
@@ -159,32 +157,43 @@ export const RunCommand = cmd({
       const mode = args.mode ? await Mode.get(args.mode) : await Mode.list().then((x) => x[0])
 
       const messageID = Identifier.ascending("message")
-      const result = await Session.chat({
-        sessionID: session.id,
-        messageID,
-        ...(mode.model
-          ? mode.model
-          : {
-              providerID,
-              modelID,
-            }),
-        mode: mode.name,
-        parts: [
-          {
-            id: Identifier.ascending("part"),
-            type: "text",
-            text: message,
-          },
-        ],
-      })
+       let result;
+       try {
+         result = await Session.chat({
+           sessionID: session.id,
+           messageID,
+           ...(mode.model
+             ? mode.model
+             : {
+                 providerID,
+                 modelID,
+               }),
+           mode: mode.name,
+           parts: [
+             {
+               id: Identifier.ascending("part"),
+               type: "text",
+               text: message,
+             },
+           ],
+         });
+       } catch (err) {
+         Log.Default.error("Model execution failed", {
+           error: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+           model: args.model,
+           providerID,
+           modelID
+         });
+         UI.error("Model execution failed. See log for details.");
+         return;
+       }
 
-      const isPiped = !process.stdout.isTTY
-      if (isPiped) {
-        const match = result.parts.findLast((x) => x.type === "text")
-        if (match) process.stdout.write(UI.markdown(match.text))
-        if (errorMsg) process.stdout.write(errorMsg)
-      }
-      UI.empty()
-    })
+       const isPiped = !process.stdout.isTTY;
+       if (isPiped) {
+         const match = result.parts.findLast((x) => x.type === "text");
+         if (match) process.stdout.write(UI.markdown(match.text));
+         if (errorMsg) process.stdout.write(errorMsg);
+       }
+       UI.empty();    })
   },
 })

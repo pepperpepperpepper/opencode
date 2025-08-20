@@ -58,8 +58,7 @@ package clipboard
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
+	"log/slog"
 	"sync"
 )
 
@@ -119,7 +118,7 @@ func Read(t Format) []byte {
 	buf, err := read(t)
 	if err != nil {
 		if debug {
-			fmt.Fprintf(os.Stderr, "read clipboard err: %v\n", err)
+			slog.Error("read clipboard err", "error", err)
 		}
 		return nil
 	}
@@ -139,7 +138,7 @@ func Write(t Format, buf []byte) <-chan struct{} {
 	changed, err := write(t, buf)
 	if err != nil {
 		if debug {
-			fmt.Fprintf(os.Stderr, "write to clipboard err: %v\n", err)
+			slog.Error("write to clipboard err", "error", err)
 		}
 		return nil
 	}

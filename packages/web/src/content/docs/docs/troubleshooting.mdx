@@ -12,8 +12,8 @@ that it stores locally.
 
 Log files are written to:
 
-- **macOS/Linux**: `~/.local/share/opencode/log/`
-- **Windows**: `%APPDATA%\opencode\log\`
+- **macOS/Linux**: `~/.local/share/opencode-unchained/log/`
+- **Windows**: `%APPDATA%\opencode-unchained\log\`
 
 Log files are named with timestamps (e.g., `2025-01-09T123456.log`) and the most recent 10 log files are kept.
 
@@ -25,8 +25,8 @@ You can configure the log level in your [config file](/docs/config#logging) to g
 
 opencode stores session data and other application data on disk at:
 
-- **macOS/Linux**: `~/.local/share/opencode/`
-- **Windows**: `%USERPROFILE%\.local\share\opencode`
+- **macOS/Linux**: `~/.local/share/opencode-unchained/`
+- **Windows**: `%USERPROFILE%\.local\share\opencode-unchained`
 
 This directory contains:
 
@@ -116,4 +116,3 @@ export DISPLAY=:99.0
 ```
 
 opencode will detect if you're using Wayland and prefer `wl-clipboard`, otherwise it will try to find clipboard tools in order of: `xclip` and `xsel`.
-

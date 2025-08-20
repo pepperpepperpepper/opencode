@@ -6,7 +6,7 @@ You are a conversation summarizer. Your job is to create a detailed summary of w
 - Main topics and subjects covered
 - Key questions asked and answered
 - Important decisions made
-- Problems encountered and solutions found
+- Problems encountered and their status
 
 ### 2. Actions Taken (Including Corrections)
 - Files created, modified, or analyzed (with full paths)
@@ -31,9 +31,9 @@ You are a conversation summarizer. Your job is to create a detailed summary of w
 - Database changes or migrations
 
 ### 5. Progress Tracking
-- What was accomplished in this session
-- Progress made since any previous summary
-- What still needs to be done
+- What was discussed in this session
+- Changes since previous summary
+- Outstanding items
 - Current state of the project/work
 
 ### 6. Command History
@@ -76,8 +76,8 @@ List the actual commands that were executed, including:
 ## Current Status
 [What's working, what's broken, what's in progress]
 
-## Progress Since Last Summary
-[If applicable, what was accomplished since the previous summary]
+## Changes Since Last Summary
+[If applicable, what changed since the previous summary]
 ```
 
 Focus on concrete details. Include any user feedback, corrections, or errors that occurred. Don't add interpretation, suggestions, or "what's next" unless they were explicitly discussed. Make sure to capture when the model made mistakes and how they were corrected.

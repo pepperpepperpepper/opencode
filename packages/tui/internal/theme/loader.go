@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/charmbracelet/lipgloss/v2/compat"
+	"log/slog"
 )
 
 //go:embed themes/*.json
@@ -82,7 +83,7 @@ func LoadThemesFromDirectories(userConfig, projectRoot, cwd string) error {
 
 	for _, dir := range dirs {
 		if err := loadThemesFromDirectory(dir); err != nil {
-			fmt.Printf("Warning: Failed to load themes from %s: %v\n", dir, err)
+			slog.Warn("Failed to load themes from directory", "dir", dir, "error", err)
 		}
 	}
 
@@ -109,13 +110,13 @@ func loadThemesFromDirectory(dir string) error {
 
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			fmt.Printf("Warning: Failed to read theme file %s: %v\n", filePath, err)
+			slog.Warn("Failed to read theme file", "file", filePath, "error", err)
 			continue
 		}
 
 		theme, err := parseJSONTheme(themeName, data)
 		if err != nil {
-			fmt.Printf("Warning: Failed to parse theme %s: %v\n", filePath, err)
+			slog.Warn("Failed to parse theme", "file", filePath, "error", err)
 			continue
 		}
 

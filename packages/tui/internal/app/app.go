@@ -441,7 +441,7 @@ func (a *App) CompactSession(ctx context.Context) tea.Cmd {
 	compactCtx, cancel := context.WithCancel(ctx)
 	a.compactCancel = cancel
 
-	go func() {
+	return func() tea.Msg {
 		defer func() {
 			a.compactCancel = nil
 		}()
@@ -458,9 +458,10 @@ func (a *App) CompactSession(ctx context.Context) tea.Cmd {
 			if compactCtx.Err() != context.Canceled {
 				slog.Error("Failed to compact session", "error", err)
 			}
+			return toast.NewErrorToast("Failed to compact session: " + err.Error())
 		}
-	}()
-	return nil
+		return CompactSessionMsg{}
+	}
 }
 
 func (a *App) MarkProjectInitialized(ctx context.Context) error {
