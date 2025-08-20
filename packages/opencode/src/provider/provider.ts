@@ -191,13 +191,27 @@ export namespace Provider {
             "HTTP-Referer": "https://opencode.ai/",
             "X-Title": "opencode",
           },
+          fetch: async (input: RequestInfo, init?: RequestInit) => {
+            const response = await fetch(input, init)
+            
+            // Check if this is a GLM-4.5 model request
+            let isGlm45 = false
+            if (init?.body) {
+              try {
+                const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body
+                isGlm45 = body.model?.toLowerCase().includes('glm-4.5')
+              } catch {}
+            }
+            
+            if (isGlm45) {
+              const { glm45Fetch } = await import("./zai")
+              return glm45Fetch(input, init)
+            }
+            
+            return response
+          }
         },
         getModel: async (sdk, modelID) => {
-          const isGlm45 = modelID.toLowerCase().includes("glm-4.5")
-          if (isGlm45) {
-            const { glm45Fetch } = await import("./zai")
-            return sdk.languageModel(modelID, { fetch: glm45Fetch })
-          }
           return sdk.languageModel(modelID)
         },
       }
@@ -212,6 +226,19 @@ export namespace Provider {
           apiKey,
           baseURL: "https://open.bigmodel.cn/api/paas/v4",
           fetch: glm45Fetch as any,
+        },
+      }
+    },
+    parasail: async () => {
+      const apiKey = process.env["PARASAIL_API_KEY"]
+      if (!apiKey) return { autoload: false }
+      const { parasailGlmFetch } = await import("./parasail")
+      return {
+        autoload: true,
+        options: {
+          apiKey,
+          baseURL: "https://api.parasail.io/v1",
+          fetch: parasailGlmFetch as any,
         },
       }
     },
