@@ -212,11 +212,26 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
               let jsonStr = incompleteData + data
               incompleteData = ""
 
-              try {
-                if (!jsonStr || jsonStr.trim() === "") {
-                  continue
-                }
+              // Only try to parse if we have what looks like a complete JSON object
+              if (!jsonStr || jsonStr.trim() === "") {
+                continue
+              }
 
+              // Try parsing directly - if it fails, it's incomplete
+              let isComplete = true
+              try {
+                JSON.parse(jsonStr)
+              } catch {
+                isComplete = false
+              }
+              
+              if (!isComplete) {
+                // Incomplete JSON, save for next chunk
+                incompleteData = jsonStr
+                continue
+              }
+
+              try {
                 const json = JSON.parse(jsonStr)
 
                 // Format reasoning for streaming and scan for potential tool mentions
@@ -248,29 +263,28 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
                 const transformed = responseTransformer(json, availableTools)
                 controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
               } catch (e) {
-                log.error("Error in streaming transform", {
+                // If JSON parsing fails even though braces look balanced, save for next chunk
+                // This handles cases where strings contain braces or other edge cases
+                log.debug("JSON parse failed, buffering for next chunk", {
                   error: e instanceof Error ? e.message : String(e),
-                  jsonStr,
+                  jsonLength: jsonStr.length,
                 })
-                if (jsonStr && jsonStr.trim().length > 0) {
-                  log.error("Attempted to parse invalid JSON chunk", { jsonStr })
-                  const errorDelta = {
-                    choices: [
-                      {
-                        delta: {
-                          content: `\n\n[STREAM ERROR]: Failed to parse chunk: ${e instanceof Error ? e.message : String(e)}. Invalid data: ${jsonStr.substring(0, 200)}`,
-                        },
-                        index: 0,
-                        finish_reason: null,
-                      },
-                    ],
-                  }
-                  controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorDelta) + "\n\n"))
-                } else {
-                  incompleteData = jsonStr
-                }
+                incompleteData = jsonStr
               }
             } else if (line === "" && incompleteData) {
+              // Try parsing incomplete data to see if it's now complete
+              let isDataComplete = true
+              try {
+                JSON.parse(incompleteData)
+              } catch {
+                isDataComplete = false
+              }
+              
+              if (!isDataComplete) {
+                // Still incomplete, keep waiting
+                continue
+              }
+              
               try {
                 const json = JSON.parse(incompleteData)
                 // Same formatting and scanning as above
@@ -301,25 +315,28 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
                 controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
                 incompleteData = ""
               } catch (e) {
-                log.error("Error in streaming empty line handler", {
+                log.debug("JSON parse failed on empty line, continuing to buffer", {
                   error: e instanceof Error ? e.message : String(e),
-                  incompleteData,
+                  dataLength: incompleteData.length,
                 })
-                const errorDelta = {
-                  choices: [
-                    {
-                      delta: {
-                        content: `\n\n[STREAM ERROR]: Failed to parse incomplete data on empty line: ${e instanceof Error ? e.message : String(e)}. Data: ${incompleteData.substring(0, 200)}`,
-                      },
-                      index: 0,
-                      finish_reason: null,
-                    },
-                  ],
-                }
-                controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorDelta) + "\n\n"))
+                // Keep the incomplete data for the next attempt
               }
             } else if (incompleteData && line.trim()) {
               incompleteData += line
+              
+              // Check if we now have complete JSON
+              let isAccumComplete = true
+              try {
+                JSON.parse(incompleteData)
+              } catch {
+                isAccumComplete = false
+              }
+              
+              if (!isAccumComplete) {
+                // Still incomplete, continue accumulating
+                continue
+              }
+              
               try {
                 const json = JSON.parse(incompleteData)
                 // Same formatting and scanning
@@ -350,22 +367,11 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
                 controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
                 incompleteData = ""
               } catch (e) {
-                log.error("Error in streaming incomplete data handler", {
+                log.debug("JSON parse failed while accumulating, continuing to buffer", {
                   error: e instanceof Error ? e.message : String(e),
-                  incompleteData,
+                  dataLength: incompleteData.length,
                 })
-                const errorDelta = {
-                  choices: [
-                    {
-                      delta: {
-                        content: `\n\n[STREAM ERROR]: Failed to parse incomplete data: ${e instanceof Error ? e.message : String(e)}. Data: ${incompleteData.substring(0, 200)}`,
-                      },
-                      index: 0,
-                      finish_reason: null,
-                    },
-                  ],
-                }
-                controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorDelta) + "\n\n"))
+                // Keep accumulating data for next attempt
               }
             } else if (line === "") {
               controller.enqueue(new TextEncoder().encode("\n"))
@@ -377,6 +383,36 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
 
         flush(controller) {
           if (incompleteData) {
+            // Final attempt - try parsing any remaining incomplete data
+            let isFinalComplete = true
+            try {
+              JSON.parse(incompleteData)
+            } catch {
+              isFinalComplete = false
+            }
+            
+            if (!isFinalComplete) {
+              log.warn("Incomplete JSON data at stream end", {
+                dataLength: incompleteData.length,
+                data: incompleteData.substring(0, 100),
+              })
+              // Send a final error message
+              const errorDelta = {
+                choices: [
+                  {
+                    delta: {
+                      content: `\n\n[STREAM WARNING]: Incomplete data at stream end`,
+                    },
+                    index: 0,
+                    finish_reason: "error",
+                  },
+                ],
+              }
+              controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(errorDelta) + "\n\n"))
+              controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+              return
+            }
+            
             try {
               const json = JSON.parse(incompleteData)
               // Same formatting and scanning in flush
@@ -406,15 +442,15 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
               const transformed = responseTransformer(json, availableTools)
               controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(transformed) + "\n\n"))
             } catch (e) {
-              log.error("Error in streaming flush", {
+              log.error("Failed to parse final JSON in flush", {
                 error: e instanceof Error ? e.message : String(e),
-                incompleteData,
+                dataLength: incompleteData.length,
               })
               const errorDelta = {
                 choices: [
                   {
                     delta: {
-                      content: `\n\n[STREAM ERROR]: Incomplete JSON in flush: ${e instanceof Error ? e.message : String(e)}. Data: ${incompleteData.substring(0, 200)}`,
+                      content: `\n\n[STREAM ERROR]: Failed to parse final JSON`,
                     },
                     index: 0,
                     finish_reason: "error",
