@@ -159,7 +159,7 @@ export function requestTransformer(body: string): string {
               .filter(Boolean)
               .join(", ")
           : "various tools"
-        bodyObj.messages[0].content += `\n\nAvailable tools: ${toolList}. When you need to use a tool, call it using the standard OpenAI tool call format. Always specify the exact tool name from the available tools list. Example: to list files, use the "bash" tool with command "ls".`
+        bodyObj.messages[0].content += `\n\nAvailable tools: ${toolList}. Use exact names.`
         log.info("Injected tool reminder into system prompt", { toolList })
       } else {
         log.debug("Skipped tool reminder injection - no valid system message found")
