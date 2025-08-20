@@ -159,8 +159,13 @@ export function requestTransformer(body: string): string {
               .filter(Boolean)
               .join(", ")
           : "various tools"
-        bodyObj.messages[0].content += `\n\nAvailable tools: ${toolList}. Use exact names.`
-        log.info("Injected tool reminder into system prompt", { toolList })
+        // Check if tool reminder already exists to prevent double injection
+        if (!bodyObj.messages[0].content.includes("Available tools:")) {
+          bodyObj.messages[0].content += `\n\nAvailable tools: ${toolList}. Use exact names.`
+          log.info("Injected tool reminder into system prompt", { toolList })
+        } else {
+          log.debug("Skipped tool reminder injection - already present", { toolList })
+        }
       } else {
         log.debug("Skipped tool reminder injection - no valid system message found")
       }
