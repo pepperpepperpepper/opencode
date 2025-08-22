@@ -1,0 +1,43 @@
+#!/bin/bash
+
+
+make sure the directories exist
+mkdir -p ~/.local
+mkdir -p ~/.local/share/opencode
+mkdir -p ~/.local/share/
+mkdir -p ~/.local/bin/
+
+# Path to your opencode source directory
+OPENCODE_SOURCE_DIR="/home/$USER/.local/src/opencode"
+
+# Check if the source directory exists
+if [ ! -d "$OPENCODE_SOURCE_DIR" ]; then
+    echo "Error: opencode source directory not found at $OPENCODE_SOURCE_DIR" >&2
+    exit 1
+fi
+
+# Check if bun is available
+if ! command -v bun &> /dev/null; then
+    echo "Error: bun is not installed or not in PATH" >&2
+    exit 1
+fi
+# Check if node_modules exists, if not install dependencies
+if [ ! -d "$OPENCODE_SOURCE_DIR/node_modules" ]; then
+    echo "Installing dependencies..."
+    (cd "$OPENCODE_SOURCE_DIR" && bun install)
+fi
+
+
+
+# Ensure the log directory exists
+mkdir -p ~/.local/share/opencode/log
+
+# Store the original directory
+ORIGINAL_DIR="$(pwd)"
+
+# Change to the source directory to ensure dependencies are available
+# This ensures Go libraries are installed in the correct location
+cd "$OPENCODE_SOURCE_DIR"
+
+# Run opencode from the original directory
+exec bun run --cwd="$ORIGINAL_DIR" ~/.local/src/opencode/packages/opencode/src/index.ts "$@" 
