@@ -17,6 +17,7 @@
         "read": true,
         "text_search": true,
         "glob": true,
+        "list": true,
         "patch": true,
         "todowrite": true,
         "todoread": true,
