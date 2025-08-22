@@ -1,85 +1,63 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "serper": {
+      "type": "local",
+      "command": ["npx", "-y", "serper-search-scrape-mcp-server"]
+    }
+  },
+  "theme": "opencode",
+  "mode": {
+    "raw": {
+      "prompt": "act natural",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "read": true,
+        "text_search": true,
+        "glob": true,
+        "patch": true,
+        "todowrite": true,
+        "todoread": true,
+        "webfetch": true,
+        "task": true
+      }
+    }
+  },
   "provider": {
-    "parasail": {
-      "name": "Parasail",
-      "env": ["PARASAIL_API_KEY"],
-      "models": {
-        "glm-4.5": {
-          "name": "GLM-4.5",
-          "release_date": "2025-07-28",
-          "attachment": true,
-          "reasoning": true,
-          "temperature": true,
-          "tool_call": true,
-          "cost": {
-            "input": 0.2,
-            "output": 1.1
-          },
-          "limit": {
-            "context": 128000,
-            "output": 96000
-          },
-          "options": {}
+    "wandb": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "W&B Inference",
+      "options": {
+        "baseURL": "https://api.inference.wandb.ai/v1",
+        "apiKey": "{env:WANDB_API_KEY}",
+        "headers": {
+          "OpenAI-Project": "pepperdas-pepper-music/terminal tools"
         }
-      }
-    },
-    "openrouter": {
+      },
       "models": {
-        "moonshotai/kimi-k2": {
-          "options": {
-            "provider": {
-              "order": ["baseten"],
-              "allow_fallbacks": false
-            }
-          }
+        "Qwen/Qwen3-Coder-480B-A35B-Instruct": {
+          "name": "Qwen3 Coder 480B"
         }
-      }
-    },
-    "huggingface": {
-      "models": {
-        "Qwen/Qwen3-235B-A22B-Instruct-2507:fireworks-ai": {},
-        "Qwen/Qwen3-Coder-480B-A35B-Instruct:fireworks-ai": {},
-        "Qwen/Qwen3-32B:fireworks-ai": {},
-        "Qwen/Qwen3-8B:fireworks-ai": {},
-        "Qwen/Qwen3-14B:fireworks-ai": {},
-        "Qwen/Qwen3-4B:fireworks-ai": {},
-        "Qwen/Qwen3-1.7B:fireworks-ai": {},
-        "Qwen/Qwen3-0.6B:fireworks-ai": {}
       }
     },
     "zai": {
-      "name": "Z.ai",
-      "env": ["ZAI_API_KEY"],
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "z.ai",
+      "options": {
+        "baseURL": "https://api.z.ai/api/paas/v4/",
+        "apiKey": "{env:ZAI_API_KEY}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
       "models": {
         "glm-4.5": {
-          "name": "GLM-4.5",
-          "release_date": "2025-07-28",
-          "attachment": true,
-          "reasoning": true,
-          "temperature": true,
-          "tool_call": true,
-          "cost": {
-            "input": 0.2,
-            "output": 1.1
-          },
-          "limit": {
-            "context": 128000,
-            "output": 96000
-          },
-          "options": {}
+          "name": "GLM 4.5"
         }
       }
     }
   },
-  "mcp": {
-    "context7": {
-      "type": "remote",
-      "url": "https://mcp.context7.com/sse"
-    },
-    "weather": {
-      "type": "local",
-      "command": ["opencode", "x", "@h1deya/mcp-server-weather"]
-    }
-  }
+  "model": "zai/glm-4.5"
 }
