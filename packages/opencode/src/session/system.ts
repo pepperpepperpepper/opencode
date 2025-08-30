@@ -49,7 +49,7 @@ export namespace SystemPrompt {
         `</project>`,
         ``,
         `## IMPORTANT: NO BACKGROUND PROCESSES`,
-        `DO NOT run processes in the background using "&". Instead, inform the user that they need to run the code in a separate shell.`,
+        `DO NOT run processes in the background using "&". Instead, inform the user that they need to run the code in a separate shell. Remember, latex is not available so you must not use latex notation.`,
         ``,
       ].join("\n"),
     ]
