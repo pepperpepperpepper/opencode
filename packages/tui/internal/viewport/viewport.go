@@ -741,7 +741,6 @@ func (m Model) updateAsModel(msg tea.Msg) Model {
 		case key.Matches(msg, m.KeyMap.Right):
 			m.MoveRight(m.horizontalStep)
 		}
-
 	case tea.MouseWheelMsg:
 		if !m.MouseWheelEnabled {
 			break

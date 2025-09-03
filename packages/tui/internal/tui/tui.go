@@ -52,6 +52,8 @@ type Model struct {
 	messagesRight bool
 	fileViewer    fileviewer.Model
 	isBashMode    bool
+	// Pane focus management
+	focusedPane string // "editor" or "messages"
 }
 
 func (a Model) Init() tea.Cmd {
@@ -115,7 +117,35 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 
-		// 2. Check for commands that require leader
+		// 2. Handle pane switching with Ctrl+Space
+		if keyString == "shift+tab" {
+			// Switch between editor and messages panes
+			if a.focusedPane == "editor" {
+				a.focusedPane = "messages"
+				a.editor.Blur()
+			} else {
+				a.focusedPane = "editor"
+				a.editor.Focus()
+			}
+			return a, nil
+		}
+
+		// 3. Handle arrow keys based on focused pane
+		if a.focusedPane == "messages" {
+			switch keyString {
+			case "up", "down", "left", "right":
+				// Route arrow keys to messages viewport when messages pane is focused
+				updated, cmd := a.messages.Update(msg)
+				a.messages = updated.(chat.MessagesComponent)
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				// Skip the general update processing below since we handled it here
+				return a, tea.Batch(cmds...)
+			}
+		}
+
+		// 4. Check for commands that require leader
 		if a.app.IsLeaderSequence {
 			matches := a.app.Commands.Matches(msg, a.app.IsLeaderSequence)
 			a.app.IsLeaderSequence = false
@@ -261,10 +291,14 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Suspend
 		}
 
-		// 10. Fallback to editor. This is for other characters like backspace, tab, etc.
-		updatedEditor, cmd := a.editor.Update(msg)
-		a.editor = updatedEditor.(chat.EditorComponent)
-		return a, cmd
+		// 10. Fallback to editor only if editor is focused. This is for other characters like backspace, tab, etc.
+		if a.focusedPane == "editor" {
+			updatedEditor, cmd := a.editor.Update(msg)
+			a.editor = updatedEditor.(chat.EditorComponent)
+			return a, cmd
+		}
+		// If messages pane is focused and we get here, the key wasn't handled
+		return a, nil
 	case tea.MouseWheelMsg:
 		if a.modal != nil {
 			u, cmd := a.modal.Update(msg)
@@ -516,8 +550,6 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.app.State.UpdateModelUsage(msg.Provider.ID, msg.Model.ID)
 		cmds = append(cmds, a.app.SaveState())
 	case app.BashOutputMsg:
-		slog.Info("DEBUG: Received BashOutputMsg", "outputLength", len(msg.Output), "output", msg.Output[:min(100, len(msg.Output))])
-
 		// Create session if none exists
 		if a.app.Session.ID == "" {
 			session, err := a.app.CreateSession(context.Background())
@@ -567,11 +599,8 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				},
 			},
 		}
-		slog.Info("DEBUG: Created bash message", "messageID", messageID, "totalMessages", len(a.app.Messages)+1)
 		a.app.Messages = append(a.app.Messages, bashMessage)
-		slog.Info("DEBUG: Appended bash message to app.Messages", "newTotalMessages", len(a.app.Messages))
 		cmds = append(cmds, util.CmdHandler(chat.MessagesRefreshMsg{}))
-		slog.Info("DEBUG: Sent MessagesRefreshMsg command")
 	case dialog.ThemeSelectedMsg:
 		a.app.State.Theme = msg.ThemeName
 		cmds = append(cmds, a.app.SaveState())
@@ -616,13 +645,17 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 	a.status = s.(status.StatusComponent)
 
-	u, cmd := a.editor.Update(msg)
-	a.editor = u.(chat.EditorComponent)
-	cmds = append(cmds, cmd)
+	// Only update editor if it's focused or if the message is not a key press
+	_, isKeyPress := msg.(tea.KeyPressMsg)
+	if a.focusedPane == "editor" || !isKeyPress {
+		editorModel, editorCmd := a.editor.Update(msg)
+		a.editor = editorModel.(chat.EditorComponent)
+		cmds = append(cmds, editorCmd)
+	}
 
-	u, cmd = a.messages.Update(msg)
-	a.messages = u.(chat.MessagesComponent)
-	cmds = append(cmds, cmd)
+	messagesModel, messagesCmd := a.messages.Update(msg)
+	a.messages = messagesModel.(chat.MessagesComponent)
+	cmds = append(cmds, messagesCmd)
 
 	if a.modal != nil {
 		u, cmd := a.modal.Update(msg)
@@ -677,7 +710,18 @@ func (a Model) View() string {
 	if theme.CurrentThemeUsesAnsiColors() {
 		mainLayout = util.ConvertRGBToAnsi16Colors(mainLayout)
 	}
-	return mainLayout + "\n" + a.status.View()
+
+	// Get status view
+	statusView := a.status.View()
+
+	// Add focus indicator as a separate element
+	focusIndicator := styles.NewStyle().
+		Foreground(t.Primary()).
+		Background(t.Background()).
+		Bold(true).
+		Render(" [" + strings.ToUpper(a.focusedPane) + "]")
+
+	return mainLayout + "\n" + statusView + focusIndicator
 }
 
 func (a Model) openFile(filepath string) (tea.Model, tea.Cmd) {
@@ -840,6 +884,21 @@ func (a Model) chat() string {
 		styles.WhitespaceStyle(t.Background()),
 	)
 
+	// Add focus indicators - using background color instead of borders to avoid height issues
+	if a.focusedPane == "messages" {
+		// Highlight messages when focused
+		messagesHighlightStyle := styles.NewStyle().
+			Background(t.Background()).
+			Foreground(t.Primary())
+		messagesView = messagesHighlightStyle.Render("▶ ") + messagesView
+	} else {
+		// Highlight editor when focused
+		editorHighlightStyle := styles.NewStyle().
+			Background(t.Background()).
+			Foreground(t.Primary())
+		editorView = editorHighlightStyle.Render("▶ ") + editorView
+	}
+
 	mainLayout := messagesView + "\n" + editorView
 	editorX := (effectiveWidth - editorWidth) / 2
 
@@ -850,6 +909,21 @@ func (a Model) chat() string {
 			editorY,
 			a.editor.Content(),
 			mainLayout,
+		)
+	}
+
+	// Ensure the entire chat layout fits within available height
+	// This prevents the content from overflowing and hiding the status bar
+	totalContentHeight := lipgloss.Height(mainLayout)
+	if totalContentHeight > a.height {
+		// If content is too tall, constrain it to fit
+		mainLayout = lipgloss.Place(
+			effectiveWidth,
+			a.height,
+			lipgloss.Center,
+			lipgloss.Top,
+			mainLayout,
+			styles.WhitespaceStyle(t.Background()),
 		)
 	}
 
@@ -1185,6 +1259,7 @@ func NewModel(app *app.App) tea.Model {
 		fileViewer:           fileviewer.New(app),
 		messagesRight:        app.State.MessagesRight,
 		isBashMode:           false,
+		focusedPane:          "editor", // Start with editor focused
 	}
 
 	return model

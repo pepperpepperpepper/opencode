@@ -108,7 +108,6 @@ func (m statusComponent) View() string {
 	mode = modeStyle.
 		Padding(0, 1).
 		Render(mode)
-
 	mode = styles.NewStyle().
 		Faint(true).
 		Background(t.BackgroundPanel()).
