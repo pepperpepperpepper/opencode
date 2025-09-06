@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/v2/key"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/x/input"
 
 	"github.com/sst/opencode-sdk-go"
 	"github.com/sst/opencode/internal/api"
@@ -90,8 +91,28 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		keyString := msg.String()
+		keyEvent := msg.Key()
 
-		// 1. Handle active modal
+		// Debug: log the key string to see what we get
+		if strings.Contains(keyString, "c") && (keyEvent.Mod != 0) {
+			slog.Info("Key press detected",
+				"keyString", keyString,
+				"text", msg.Text,
+				"key", fmt.Sprintf("%+v", keyEvent),
+				"mod", keyEvent.Mod,
+				"code", keyEvent.Code,
+				"hasCtrl", keyEvent.Mod.Contains(input.ModCtrl),
+				"hasShift", keyEvent.Mod.Contains(input.ModShift),
+			)
+		}
+
+		// 1. Handle ctrl+shift+c - pass to terminal for copy/paste
+		if keyEvent.Mod.Contains(input.ModCtrl) && keyEvent.Mod.Contains(input.ModShift) && (keyEvent.Code == 'c' || keyString == "c") {
+			// This is ctrl+shift+c - let it pass to host terminal for copy/paste
+			slog.Info("Detected ctrl+shift+c, passing to terminal")
+			return a, nil
+		}
+		// 2. Handle active modal
 		if a.modal != nil {
 			switch keyString {
 			// Escape always closes current modal
@@ -99,38 +120,38 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmd := a.modal.Close()
 				a.modal = nil
 				return a, cmd
-			case "ctrl+c":
-				// give the modal a chance to handle the ctrl+c
-				updatedModal, cmd := a.modal.Update(msg)
-				a.modal = updatedModal.(layout.Modal)
-				if cmd != nil {
-					return a, cmd
-				}
-				cmd = a.modal.Close()
+			case "ctrl+l":
+				// ctrl+l closes modal (changed from ctrl+c to allow ctrl+shift+c pass-through)
+				cmd := a.modal.Close()
 				a.modal = nil
 				return a, cmd
 			}
-
 			// Pass all other key presses to the modal
 			updatedModal, cmd := a.modal.Update(msg)
 			a.modal = updatedModal.(layout.Modal)
 			return a, cmd
 		}
 
-		// 2. Handle pane switching with Ctrl+Space
+		// 3. Handle pane switching with Ctrl+Space
 		if keyString == "shift+tab" {
 			// Switch between editor and messages panes
 			if a.focusedPane == "editor" {
 				a.focusedPane = "messages"
 				a.editor.Blur()
+				// Disable tail mode when switching to messages pane
+				a.messages.SetTailMode(false)
 			} else {
 				a.focusedPane = "editor"
 				a.editor.Focus()
+				// Enable tail mode when switching back to editor pane
+				a.messages.SetTailMode(true)
 			}
 			return a, nil
 		}
 
-		// 3. Handle arrow keys based on focused pane
+		// 3. Handle pane switching with Ctrl+Space
+
+		// 4. Handle arrow keys based on focused pane
 		if a.focusedPane == "messages" {
 			switch keyString {
 			case "up", "down", "left", "right":
@@ -154,7 +175,7 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// 3. Handle completions trigger
+		// 4. Handle completions trigger
 		if keyString == "/" &&
 			!a.showCompletionDialog &&
 			a.editor.Value() == "" {
@@ -208,8 +229,16 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if a.showCompletionDialog {
+			// Check if this is ctrl+shift+c - pass to terminal
+			if keyEvent.Mod.Contains(input.ModCtrl) && keyEvent.Mod.Contains(input.ModShift) && (keyEvent.Code == 'c' || keyString == "c") {
+				// This is ctrl+shift+c - let it pass to host terminal
+				slog.Info("Detected ctrl+shift+c in completion dialog, passing to terminal")
+				return a, nil
+			}
+
 			switch keyString {
-			case "tab", "enter", "esc", "ctrl+c", "up", "down", "ctrl+p", "ctrl+n":
+			case "tab", "enter", "esc", "up", "down", "ctrl+p", "ctrl+n":
+			case "ctrl+c":
 				updated, cmd := a.completions.Update(msg)
 				a.completions = updated.(dialog.CompletionDialog)
 				cmds = append(cmds, cmd)
@@ -227,7 +256,7 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(cmds...)
 		}
 
-		// 4. Maximize editor responsiveness for printable characters
+		// 5. Maximize editor responsiveness for printable characters
 		if msg.Text != "" {
 			updated, cmd := a.editor.Update(msg)
 			a.editor = updated.(chat.EditorComponent)
@@ -235,7 +264,7 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(cmds...)
 		}
 
-		// 5. Check for leader key activation
+		// 6. Check for leader key activation
 		if a.leaderBinding != nil &&
 			!a.app.IsLeaderSequence &&
 			key.Matches(msg, *a.leaderBinding) {
@@ -243,26 +272,26 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		// 6 Handle input clear command
+		// 7. Handle input clear command
 		inputClearCommand := a.app.Commands[commands.InputClearCommand]
 		if inputClearCommand.Matches(msg, a.app.IsLeaderSequence) && a.editor.Length() > 0 {
 			return a, util.CmdHandler(commands.ExecuteCommandMsg(inputClearCommand))
 		}
 
-		// 7. Handle interrupt key for session interrupt - single press
+		// 8. Handle interrupt key for session interrupt - single press
 		interruptCommand := a.app.Commands[commands.SessionInterruptCommand]
 		if interruptCommand.Matches(msg, a.app.IsLeaderSequence) && a.app.IsBusy() {
 			// Single press interrupt - no debounce
 			return a, util.CmdHandler(commands.ExecuteCommandMsg(interruptCommand))
 		}
 
-		// 8. Handle exit command directly (no debounce needed)
+		// 9. Handle exit command directly (no debounce needed)
 		exitCommand := a.app.Commands[commands.AppExitCommand]
 		if exitCommand.Matches(msg, a.app.IsLeaderSequence) {
 			return a, util.CmdHandler(commands.ExecuteCommandMsg(exitCommand))
 		}
 
-		// 9. Check again for commands that don't require leader (excluding interrupt when busy and exit when in debounce)
+		// 10. Check again for commands that don't require leader (excluding interrupt when busy and exit when in debounce)
 		matches := a.app.Commands.Matches(msg, a.app.IsLeaderSequence)
 		if len(matches) > 0 {
 			// Filter out SessionInterruptCommand when app is not busy (should only work when busy)
@@ -291,7 +320,7 @@ func (a Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Suspend
 		}
 
-		// 10. Fallback to editor only if editor is focused. This is for other characters like backspace, tab, etc.
+		// 11. Fallback to editor only if editor is focused. This is for other characters like backspace, tab, etc.
 		if a.focusedPane == "editor" {
 			updatedEditor, cmd := a.editor.Update(msg)
 			a.editor = updatedEditor.(chat.EditorComponent)

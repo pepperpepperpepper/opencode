@@ -36,6 +36,7 @@ type MessagesComponent interface {
 	CopySelection() (tea.Model, tea.Cmd)
 	UndoLastMessage() (tea.Model, tea.Cmd)
 	RedoLastMessage() (tea.Model, tea.Cmd)
+	SetTailMode(enabled bool)
 }
 
 type messagesComponent struct {
@@ -1068,6 +1069,14 @@ func (m *messagesComponent) RedoLastMessage() (tea.Model, tea.Cmd) {
 			return toast.NewErrorToast("Failed to redo message")
 		}
 		return app.MessageRevertedMsg{Session: *response, Message: revertedMessage}
+	}
+}
+
+// SetTailMode sets whether the messages viewport should stay at the bottom (tail mode)
+func (m *messagesComponent) SetTailMode(enabled bool) {
+	m.tail = enabled
+	if enabled {
+		m.viewport.GotoBottom()
 	}
 }
 
