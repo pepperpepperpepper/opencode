@@ -246,7 +246,11 @@ func (m *messagesComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	m.tail = m.viewport.AtBottom()
+	// Only update tail based on viewport position if we're not in manual control mode
+	// This prevents tail mode from being re-enabled when scrolling to bottom in messages pane
+	if m.tail {
+		m.tail = m.viewport.AtBottom()
+	}
 	viewport, cmd := m.viewport.Update(msg)
 	m.viewport = viewport
 	cmds = append(cmds, cmd)
