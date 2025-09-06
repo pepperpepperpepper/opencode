@@ -54,6 +54,8 @@ type messagesComponent struct {
 	partCount       int
 	lineCount       int
 	selection       *selection
+	// Track whether tail mode was manually disabled by user switching to messages pane
+	tailManuallyDisabled bool
 }
 
 type selection struct {
@@ -167,8 +169,10 @@ func (m *messagesComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseReleaseMsg:
-		// Re-enable tail mode when selection ends
-		m.tail = true
+		// Re-enable tail mode when selection ends, but only if not manually disabled
+		if !m.tailManuallyDisabled {
+			m.tail = true
+		}
 		// Just handle the mouse release, don't auto-copy or clear selection
 		// Selection state remains visible for user to manually copy if desired
 		return m, nil
@@ -185,7 +189,10 @@ func (m *messagesComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.renderView()
 	case app.SendPrompt:
 		m.viewport.GotoBottom()
-		m.tail = true
+		// Only enable tail mode if not manually disabled by user
+		if !m.tailManuallyDisabled {
+			m.tail = true
+		}
 		return m, nil
 	case dialog.ThemeSelectedMsg:
 		m.cache.Clear()
@@ -196,19 +203,28 @@ func (m *messagesComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.renderView()
 	case app.SessionLoadedMsg, app.SessionClearedMsg:
 		m.cache.Clear()
-		m.tail = true
+		// Only enable tail mode if not manually disabled by user
+		if !m.tailManuallyDisabled {
+			m.tail = true
+		}
 		m.loading = true
 		return m, m.renderView()
 	case app.SessionUnrevertedMsg:
 		if msg.Session.ID == m.app.Session.ID {
 			m.cache.Clear()
-			m.tail = true
+			// Only enable tail mode if not manually disabled by user
+			if !m.tailManuallyDisabled {
+				m.tail = true
+			}
 			return m, m.renderView()
 		}
 	case app.MessageRevertedMsg:
 		if msg.Session.ID == m.app.Session.ID {
 			m.cache.Clear()
-			m.tail = true
+			// Only enable tail mode if not manually disabled by user
+			if !m.tailManuallyDisabled {
+				m.tail = true
+			}
 			return m, m.renderView()
 		}
 
@@ -238,7 +254,11 @@ func (m *messagesComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rendering = false
 		m.clipboard = msg.clipboard
 		m.loading = false
-		m.tail = m.viewport.AtBottom()
+		// Only update tail mode if it's already enabled - this preserves manual control
+		// when user has disabled tail mode by switching to messages pane
+		if m.tail {
+			m.tail = m.viewport.AtBottom()
+		}
 		m.viewport = msg.viewport
 		m.header = msg.header
 		if m.dirty {
@@ -1079,6 +1099,12 @@ func (m *messagesComponent) RedoLastMessage() (tea.Model, tea.Cmd) {
 // SetTailMode sets whether the messages viewport should stay at the bottom (tail mode)
 func (m *messagesComponent) SetTailMode(enabled bool) {
 	m.tail = enabled
+	// Track when tail mode is manually disabled (user switches to messages pane)
+	if !enabled {
+		m.tailManuallyDisabled = true
+	} else {
+		m.tailManuallyDisabled = false
+	}
 	if enabled {
 		m.viewport.GotoBottom()
 	}
@@ -1095,10 +1121,11 @@ func NewMessagesComponent(app *app.App) MessagesComponent {
 	}
 
 	return &messagesComponent{
-		app:             app,
-		viewport:        vp,
-		showToolDetails: true,
-		cache:           NewPartCache(),
-		tail:            true,
+		app:                  app,
+		viewport:             vp,
+		showToolDetails:      true,
+		cache:                NewPartCache(),
+		tail:                 true,
+		tailManuallyDisabled: false, // Initially not disabled, user hasn't switched to messages pane yet
 	}
 }
