@@ -266,9 +266,12 @@ func (m *messagesComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Only update tail based on viewport position if we're not in manual control mode
-	// This prevents tail mode from being re-enabled when scrolling to bottom in messages pane
-	if m.tail {
+	// Only update tail based on viewport position if:
+	// 1. Tail mode is currently enabled
+	// 2. Tail mode wasn't manually disabled by user
+	// 3. We're not in the middle of content rendering
+	// This prevents tail mode from being re-enabled when user is manually scrolling
+	if m.tail && !m.tailManuallyDisabled && !m.rendering {
 		m.tail = m.viewport.AtBottom()
 	}
 	viewport, cmd := m.viewport.Update(msg)
@@ -688,7 +691,9 @@ func (m *messagesComponent) renderView() tea.Cmd {
 		content := "\n" + strings.Join(final, "\n")
 		viewport.SetHeight(m.height - lipgloss.Height(header))
 		viewport.SetContent(content)
-		if tail {
+		// Only go to bottom if tail mode is enabled AND auto-scroll is enabled
+		// This prevents automatic scrolling when user is manually controlling the viewport
+		if tail && viewport.AutoScrollToBottom {
 			viewport.GotoBottom()
 		}
 
@@ -1105,6 +1110,8 @@ func (m *messagesComponent) SetTailMode(enabled bool) {
 	} else {
 		m.tailManuallyDisabled = false
 	}
+	// Control viewport's auto-scroll behavior based on tail mode
+	m.viewport.AutoScrollToBottom = enabled
 	if enabled {
 		m.viewport.GotoBottom()
 	}
@@ -1119,6 +1126,9 @@ func NewMessagesComponent(app *app.App) MessagesComponent {
 	} else {
 		vp.MouseWheelDelta = 4
 	}
+
+	// Initialize viewport auto-scroll to match initial tail mode
+	vp.AutoScrollToBottom = true
 
 	return &messagesComponent{
 		app:                  app,

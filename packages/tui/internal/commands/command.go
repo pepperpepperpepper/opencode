@@ -281,7 +281,7 @@ func LoadFromConfig(config *opencode.Config) CommandRegistry {
 		{
 			Name:        InputClearCommand,
 			Description: "clear input",
-			Keybindings: parseBindings("ctrl+c"),
+			Keybindings: parseBindings("ctrl+l"),
 		},
 		{
 			Name:        InputPasteCommand,
@@ -363,7 +363,7 @@ func LoadFromConfig(config *opencode.Config) CommandRegistry {
 		{
 			Name:        AppExitCommand,
 			Description: "exit the app",
-			Keybindings: parseBindings("ctrl+c", "<leader>q"),
+			Keybindings: parseBindings("ctrl+q"),
 			Trigger:     []string{"exit", "quit", "q"},
 		},
 	}

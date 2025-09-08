@@ -88,6 +88,11 @@ type Model struct {
 	// The number of lines the mouse wheel will scroll. By default, this is 3.
 	MouseWheelDelta int
 
+	// Whether or not to automatically scroll to bottom when content grows
+	// beyond current viewport position. When false, preserves current scroll
+	// position even when new content is added.
+	AutoScrollToBottom bool
+
 	// YOffset is the vertical scroll position.
 	YOffset int
 
@@ -162,6 +167,7 @@ func (m *Model) setInitialValues() {
 	m.KeyMap = DefaultKeyMap()
 	m.MouseWheelEnabled = true
 	m.MouseWheelDelta = 3
+	m.AutoScrollToBottom = true
 	m.initialized = true
 	m.horizontalStep = defaultHorizontalStep
 	m.LeftGutterFunc = NoGutter
@@ -258,7 +264,11 @@ func (m *Model) SetContentLines(lines []string) {
 	m.longestLineWidth = maxLineWidth(m.lines)
 	m.ClearHighlights()
 
-	if m.YOffset > m.maxYOffset() {
+	// Only auto-scroll to bottom if:
+	// 1. AutoScrollToBottom is enabled
+	// 2. We're currently at or near the bottom (user hasn't scrolled up manually)
+	// 3. The content has grown beyond our current position
+	if m.AutoScrollToBottom && m.YOffset >= m.maxYOffset()-1 {
 		m.GotoBottom()
 	}
 	m.memo.Invalidate()

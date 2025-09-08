@@ -122,6 +122,12 @@ func main() {
 		panic(err)
 	}
 
+	// Enable Kitty keyboard protocol for enhanced key detection (e.g., distinguishing ctrl+c from ctrl+shift+c)
+	// This enables progressive enhancement with disambiguate escape codes and report event types
+	fmt.Printf("\x1b[=1s") // Enable Kitty keyboard protocol
+	fmt.Printf("\x1b[=2s") // Enable disambiguate escape codes
+	fmt.Printf("\x1b[=4s") // Enable report event types
+
 	program := tea.NewProgram(
 		tui.NewModel(app_),
 		tea.WithAltScreen(),
@@ -161,6 +167,9 @@ func main() {
 	if err != nil {
 		slog.Error("TUI error", "error", err)
 	}
+
+	// Disable Kitty keyboard protocol to restore terminal to original state
+	fmt.Printf("\x1b[=0s") // Disable Kitty keyboard protocol
 
 	slog.Info("TUI exited", "result", result)
 }

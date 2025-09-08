@@ -5,9 +5,11 @@ import (
 	"github.com/charmbracelet/bubbles/v2/textinput"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/x/input"
 	"github.com/sst/opencode/internal/components/list"
 	"github.com/sst/opencode/internal/styles"
 	"github.com/sst/opencode/internal/theme"
+	"log/slog"
 )
 
 // SearchQueryChangedMsg is emitted when the search query changes
@@ -136,7 +138,18 @@ func (s *SearchDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
+		keyString := msg.String()
+
+		// Check if this is ctrl+shift+c - pass to terminal
+		keyEvent := msg.Key()
+		slog.Info("Search dialog key press", "keyString", keyString, "text", keyEvent.Text, "key", keyEvent.String(), "mod", keyEvent.Mod, "code", keyEvent.Code, "hasCtrl", keyEvent.Mod.Contains(input.ModCtrl), "hasShift", keyEvent.Mod.Contains(input.ModShift))
+		if keyEvent.Mod.Contains(input.ModCtrl) && keyEvent.Mod.Contains(input.ModShift) && (keyEvent.Code == 'c' || keyString == "c") {
+			// This is ctrl+shift+c - let it pass to host terminal
+			slog.Info("Detected ctrl+shift+c in search dialog, passing to terminal", "keyString", keyString)
+			return s, nil
+		}
+
+		switch keyString {
 		case "ctrl+c":
 			value := s.textInput.Value()
 			if value == "" {
