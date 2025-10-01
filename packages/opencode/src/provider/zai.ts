@@ -11,7 +11,7 @@ export function responseTransformer(response: any, availableTools?: string[]) {
         if (choice.delta.tool_calls) {
           const validCalls: any[] = []
           const invalidCalls: any[] = []
-          
+
           choice.delta.tool_calls.forEach((tc: any) => {
             // Convert numeric IDs to strings
             if (typeof tc.id === "number") {
@@ -19,8 +19,8 @@ export function responseTransformer(response: any, availableTools?: string[]) {
               log.info("Converted numeric tool ID to string", { originalId: tc.id })
             }
             if (!tc.type) tc.type = "function"
-            
-            // Handle GLM-4.5's malformed tool calls - missing function.name but has function.arguments
+
+            // Handle GLM model's malformed tool calls - missing function.name but has function.arguments
             if (tc.function && !tc.function.name && tc.function.arguments) {
               // Try to infer tool name from arguments or context
               try {
@@ -30,7 +30,7 @@ export function responseTransformer(response: any, availableTools?: string[]) {
                   tc.function.name = "bash"
                   log.info("Inferred tool name 'bash' from arguments", { arguments: tc.function.arguments })
                 } else if (args.path || args.pattern || args.query) {
-                  tc.function.name = "text_search"  
+                  tc.function.name = "text_search"
                   log.info("Inferred tool name 'text_search' from arguments", { arguments: tc.function.arguments })
                 } else if (args.content || args.file_path) {
                   tc.function.name = "write"
@@ -43,12 +43,14 @@ export function responseTransformer(response: any, availableTools?: string[]) {
                 }
               } catch (e) {
                 // If arguments aren't valid JSON, default to bash
-                tc.function.name = "bash" 
+                tc.function.name = "bash"
                 tc.function.arguments = JSON.stringify({ command: "echo 'Please specify a valid command'" })
-                log.warn("Failed to parse arguments, defaulting to bash", { error: e instanceof Error ? e.message : String(e) })
+                log.warn("Failed to parse arguments, defaulting to bash", {
+                  error: e instanceof Error ? e.message : String(e),
+                })
               }
             }
-            
+
             // Validate function name exists and is a string
             if (!tc.function || typeof tc.function.name !== "string" || tc.function.name.trim() === "") {
               invalidCalls.push(tc)
@@ -57,9 +59,9 @@ export function responseTransformer(response: any, availableTools?: string[]) {
               validCalls.push(tc)
             }
           })
-          
+
           choice.delta.tool_calls = validCalls
-          
+
           // Add error message to content for invalid calls
           if (invalidCalls.length > 0) {
             const errorMsg = `\n\nError: Invalid tool calls detected (${invalidCalls.length}). Please use valid tool names from: ${toolList}. Try rephrasing your request without tool calls.`
@@ -81,11 +83,11 @@ export function responseTransformer(response: any, availableTools?: string[]) {
         if (choice.message.tool_calls) {
           const validCalls: any[] = []
           const invalidCalls: any[] = []
-          
+
           choice.message.tool_calls.forEach((tc: any) => {
             if (!tc.type) tc.type = "function"
-            
-            // Handle GLM-4.5's malformed tool calls - missing function.name but has function.arguments
+
+            // Handle GLM model's malformed tool calls - missing function.name but has function.arguments
             if (tc.function && !tc.function.name && tc.function.arguments) {
               // Try to infer tool name from arguments or context
               try {
@@ -95,8 +97,10 @@ export function responseTransformer(response: any, availableTools?: string[]) {
                   tc.function.name = "bash"
                   log.info("Inferred tool name 'bash' from message arguments", { arguments: tc.function.arguments })
                 } else if (args.path || args.pattern || args.query) {
-                  tc.function.name = "text_search"  
-                  log.info("Inferred tool name 'text_search' from message arguments", { arguments: tc.function.arguments })
+                  tc.function.name = "text_search"
+                  log.info("Inferred tool name 'text_search' from message arguments", {
+                    arguments: tc.function.arguments,
+                  })
                 } else if (args.content || args.file_path) {
                   tc.function.name = "write"
                   log.info("Inferred tool name 'write' from message arguments", { arguments: tc.function.arguments })
@@ -108,12 +112,14 @@ export function responseTransformer(response: any, availableTools?: string[]) {
                 }
               } catch (e) {
                 // If arguments aren't valid JSON, default to bash
-                tc.function.name = "bash" 
+                tc.function.name = "bash"
                 tc.function.arguments = JSON.stringify({ command: "echo 'Please specify a valid command'" })
-                log.warn("Failed to parse message arguments, defaulting to bash", { error: e instanceof Error ? e.message : String(e) })
+                log.warn("Failed to parse message arguments, defaulting to bash", {
+                  error: e instanceof Error ? e.message : String(e),
+                })
               }
             }
-            
+
             // Validate function name exists and is a string
             if (!tc.function || typeof tc.function.name !== "string" || tc.function.name.trim() === "") {
               invalidCalls.push(tc)
@@ -122,9 +128,9 @@ export function responseTransformer(response: any, availableTools?: string[]) {
               validCalls.push(tc)
             }
           })
-          
+
           choice.message.tool_calls = validCalls
-          
+
           // Add error message to content for invalid calls
           if (invalidCalls.length > 0) {
             const errorMsg = `\n\nError: Invalid tool calls detected (${invalidCalls.length}). Please use valid tool names from: ${toolList}. Try rephrasing your request without tool calls.`
@@ -289,7 +295,7 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
               } catch {
                 isComplete = false
               }
-              
+
               if (!isComplete) {
                 // Incomplete JSON, save for next chunk
                 incompleteData = jsonStr
@@ -344,12 +350,12 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
               } catch {
                 isDataComplete = false
               }
-              
+
               if (!isDataComplete) {
                 // Still incomplete, keep waiting
                 continue
               }
-              
+
               try {
                 const json = JSON.parse(incompleteData)
                 // Same formatting and scanning as above
@@ -388,7 +394,7 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
               }
             } else if (incompleteData && line.trim()) {
               incompleteData += line
-              
+
               // Check if we now have complete JSON
               let isAccumComplete = true
               try {
@@ -396,12 +402,12 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
               } catch {
                 isAccumComplete = false
               }
-              
+
               if (!isAccumComplete) {
                 // Still incomplete, continue accumulating
                 continue
               }
-              
+
               try {
                 const json = JSON.parse(incompleteData)
                 // Same formatting and scanning
@@ -455,7 +461,7 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
             } catch {
               isFinalComplete = false
             }
-            
+
             if (!isFinalComplete) {
               log.warn("Incomplete JSON data at stream end", {
                 dataLength: incompleteData.length,
@@ -477,7 +483,7 @@ export const glm45Fetch = async (input: RequestInfo, init?: RequestInit): Promis
               controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
               return
             }
-            
+
             try {
               const json = JSON.parse(incompleteData)
               // Same formatting and scanning in flush

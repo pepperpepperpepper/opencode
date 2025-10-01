@@ -1298,11 +1298,11 @@ export namespace Session {
             })
 
             // If it's the specific GLM model with known issues
-            if (modelID.includes("glm-4.5") || modelID.includes("z-ai")) {
-              log.error("glm-4.5-known-issue", {
+            if (modelID.includes("glm-4.5") || modelID.includes("glm-4.6") || modelID.includes("z-ai")) {
+              log.error("glm-known-issue", {
                 provider: providerID,
                 model: modelID,
-                knownIssue: "GLM-4.5 model via OpenRouter has known compatibility issues with tool calling",
+                knownIssue: "GLM model via OpenRouter has known compatibility issues with tool calling",
                 workaround: "Consider using a different model or disabling tool calling for this model",
                 errorContext: errorDetails,
               })

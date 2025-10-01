@@ -1,37 +1,13 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "parasail": {
-      "name": "Parasail",
-      "env": ["PARASAIL_API_KEY"],
-      "models": {
-        "glm-4.5": {
-          "name": "GLM-4.5",
-          "release_date": "2025-07-28",
-          "attachment": true,
-          "reasoning": true,
-          "temperature": true,
-          "tool_call": true,
-          "cost": {
-            "input": 0.2,
-            "output": 1.1
-          },
-          "limit": {
-            "context": 128000,
-            "output": 96000
-          },
-          "options": {}
-        }
-      }
-    },
-    "openrouter": {
-      "models": {
-        "moonshotai/kimi-k2": {
-          "options": {
-            "provider": {
-              "order": ["baseten"],
-              "allow_fallbacks": false
-            }
+  "provider": {},
+  "openrouter": {
+    "models": {
+      "moonshotai/kimi-k2": {
+        "options": {
+          "provider": {
+            "order": ["baseten"],
+            "allow_fallbacks": false
           }
         }
       }
@@ -49,15 +25,8 @@
       }
     },
     "zai": {
-      "npm": "@ai-sdk/openai-compatible",
       "name": "Z.ai",
-      "options": {
-        "baseURL": "https://api.z.ai/api/paas/v4/",
-        "apiKey": "{env:ZAI_API_KEY}",
-        "headers": {
-          "Content-Type": "application/json"
-        }
-      },
+      "env": ["ZAI_API_KEY"],
       "models": {
         "glm-4.5": {
           "name": "GLM-4.5",
@@ -76,7 +45,6 @@
           },
           "options": {}
         },
-
         "glm-4.6": {
           "name": "GLM-4.6",
           "release_date": "2025-09-30",
