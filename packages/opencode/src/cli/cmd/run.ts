@@ -157,7 +157,7 @@ export const RunCommand = cmd({
       const mode = args.mode ? await Mode.get(args.mode) : await Mode.list().then((x) => x[0])
 
       const messageID = Identifier.ascending("message")
-       let result;
+      let result;
        try {
          result = await Session.chat({
            sessionID: session.id,
@@ -185,8 +185,9 @@ export const RunCommand = cmd({
            modelID
          });
          UI.error("Model execution failed. See log for details.");
-         return;
-       }
+        return;
+      }
+      Log.Default.info("result_parts", { parts: result.parts })
 
        const isPiped = !process.stdout.isTTY;
        if (isPiped) {

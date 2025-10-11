@@ -1204,11 +1204,41 @@ export namespace Session {
                 }
                 break
 
+              case "text-delta": {
+                if (!currentText) {
+                  currentText = {
+                    id: Identifier.ascending("part"),
+                    messageID: assistantMsg.id,
+                    sessionID: assistantMsg.sessionID,
+                    type: "text",
+                    text: "",
+                    time: {
+                      start: Date.now(),
+                    },
+                  }
+                }
+                const addition =
+                  typeof (value as { delta?: string }).delta === "string"
+                    ? (value as { delta: string }).delta
+                    : typeof (value as { text?: string }).text === "string"
+                      ? (value as { text: string }).text
+                      : ""
+                if (addition) {
+                  currentText.text += addition
+                  await updatePart(currentText)
+                }
+                break
+              }
+
               case "text":
                 if (currentText) {
                   currentText.text += value.text
                   if (currentText.text) await updatePart(currentText)
                 }
+                break
+              case "reasoning-start":
+              case "reasoning-delta":
+              case "reasoning-end":
                 break
 
               case "text-end":

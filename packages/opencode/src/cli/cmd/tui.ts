@@ -69,8 +69,29 @@ export const TuiCommand = cmd({
           hostname: args.hostname,
         })
 
-        let cmd = ["go", "run", "./main.go"]
-        let goCwd = Bun.fileURLToPath(new URL("../../../../tui/cmd/opencode", import.meta.url))
+        const goBinary = Bun.which("go")
+        if (!goBinary) {
+          UI.error("Go binary not found in PATH. Install Go or set GO_BINARY.")
+          return "done"
+        }
+        let cmd = [goBinary, "run", "./main.go"]
+        let goCwd: string
+        const execDir = path.dirname(process.execPath)
+        Log.Default.info("tui_exec", { execPath: process.execPath, execDir })
+        const sourceCandidate = Bun.fileURLToPath(new URL("../../../../tui/cmd/opencode", import.meta.url))
+        if (await fs.stat(sourceCandidate).then(() => true).catch(() => false)) {
+          goCwd = sourceCandidate
+        } else {
+          const bundledCandidate = path.resolve(execDir, "../../../packages/tui/cmd/opencode")
+          Log.Default.info("tui_go_candidate", { goCwd: bundledCandidate })
+          if (await fs.stat(bundledCandidate).then(() => true).catch(() => false)) {
+            goCwd = bundledCandidate
+          } else {
+            UI.error("TUI sources not found. Ensure packages/tui/cmd/opencode exists.")
+            return "done"
+          }
+        }
+        Log.Default.info("tui_go_cwd", { goCwd })
         if (Bun.embeddedFiles.length > 0) {
           const blob = Bun.embeddedFiles[0] as File
           let binaryName = blob.name
@@ -87,6 +108,9 @@ export const TuiCommand = cmd({
         }
         Log.Default.info("tui", {
           cmd,
+        })
+        Log.Default.info("tui_path", {
+          PATH: process.env["PATH"],
         })
         const proc = Bun.spawn({
           cmd: [
