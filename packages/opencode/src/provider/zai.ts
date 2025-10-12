@@ -153,22 +153,28 @@ export function requestTransformer(body: string): string {
     bodyObj.thinking = { type: "enabled" }
     // Safely add detailed tool reminder to system prompt with list of available tools
     try {
-      if (
-        Array.isArray(bodyObj.messages) &&
-        bodyObj.messages.length > 0 &&
-        bodyObj.messages[0].role === "system" &&
-        typeof bodyObj.messages[0].content === "string"
-      ) {
-        const toolList = bodyObj.tools
-          ? bodyObj.tools
-              .map((t: any) => t.function?.name)
-              .filter(Boolean)
-              .join(", ")
-          : "various tools"
-        bodyObj.messages[0].content += `\n\nAvailable tools: ${toolList}. When you need to use a tool, call it using the standard OpenAI tool call format. Always specify the exact tool name from the available tools list. Example: to list files, use the "bash" tool with command "ls".`
-        log.info("Injected tool reminder into system prompt", { toolList })
-      } else {
+      const messagesArray = Array.isArray(bodyObj.messages) ? bodyObj.messages : []
+      const systemCandidate = messagesArray.length > 0 ? messagesArray[0] : undefined
+      const hasSystemMessage =
+        systemCandidate && systemCandidate.role === "system" && typeof systemCandidate.content === "string"
+      if (!hasSystemMessage) {
         log.debug("Skipped tool reminder injection - no valid system message found")
+      }
+      if (hasSystemMessage) {
+        const toolNames = Array.isArray(bodyObj.tools)
+          ? bodyObj.tools.map((t: any) => t.function?.name).filter(Boolean)
+          : []
+        const hasTools = toolNames.length > 0
+        if (hasTools) {
+          const toolList = toolNames.join(", ")
+          systemCandidate.content += `\n\nAvailable tools: ${toolList}. When you need to use a tool, call it using the standard OpenAI tool call format. Always specify the exact tool name from the available tools list. Example: to list files, use the "bash" tool with command "ls".`
+          log.info("Injected tool reminder into system prompt", { toolList })
+        }
+        if (!hasTools) {
+          systemCandidate.content += "\n\nNo tools are available for this request. Respond directly without calling tools."
+          bodyObj.tool_choice = "none"
+          log.info("Injected no-tool reminder into system prompt")
+        }
       }
     } catch (reminderError: any) {
       log.warn("Failed to inject tool reminder", { error: reminderError.message || String(reminderError) })

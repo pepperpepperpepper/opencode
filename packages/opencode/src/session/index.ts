@@ -1217,11 +1217,12 @@ export namespace Session {
                     },
                   }
                 }
+                const textChunk = value as unknown as { delta?: string; text?: string }
                 const addition =
-                  typeof (value as { delta?: string }).delta === "string"
-                    ? (value as { delta: string }).delta
-                    : typeof (value as { text?: string }).text === "string"
-                      ? (value as { text: string }).text
+                  typeof textChunk.delta === "string"
+                    ? textChunk.delta
+                    : typeof textChunk.text === "string"
+                      ? textChunk.text
                       : ""
                 if (addition) {
                   currentText.text += addition
@@ -1230,9 +1231,23 @@ export namespace Session {
                 break
               }
 
+              // @ts-expect-error Legacy streaming events may use "text" instead of "text-delta".
               case "text":
-                if (currentText) {
-                  currentText.text += value.text
+                if (!currentText) {
+                  currentText = {
+                    id: Identifier.ascending("part"),
+                    messageID: assistantMsg.id,
+                    sessionID: assistantMsg.sessionID,
+                    type: "text",
+                    text: "",
+                    time: {
+                      start: Date.now(),
+                    },
+                  }
+                }
+                const legacyChunk = value as unknown as { text?: string }
+                if (typeof legacyChunk.text === "string") {
+                  currentText.text += legacyChunk.text
                   if (currentText.text) await updatePart(currentText)
                 }
                 break
@@ -1730,6 +1745,13 @@ Focus on what was discussed, what actions were taken, which files were modified,
   }
 
   function getUsage(model: ModelsDev.Model, usage: LanguageModelUsage, metadata?: ProviderMetadata) {
+    const costRates = {
+      input: model.cost?.input ?? 0,
+      output: model.cost?.output ?? 0,
+      cache_read: model.cost?.cache_read ?? 0,
+      cache_write: model.cost?.cache_write ?? 0,
+    }
+
     const tokens = {
       input: usage.inputTokens ?? 0,
       output: usage.outputTokens ?? 0,
@@ -1744,10 +1766,10 @@ Focus on what was discussed, what actions were taken, which files were modified,
     }
     return {
       cost: new Decimal(0)
-        .add(new Decimal(tokens.input).mul(model.cost.input).div(1_000_000))
-        .add(new Decimal(tokens.output).mul(model.cost.output).div(1_000_000))
-        .add(new Decimal(tokens.cache.read).mul(model.cost.cache_read ?? 0).div(1_000_000))
-        .add(new Decimal(tokens.cache.write).mul(model.cost.cache_write ?? 0).div(1_000_000))
+        .add(new Decimal(tokens.input).mul(costRates.input).div(1_000_000))
+        .add(new Decimal(tokens.output).mul(costRates.output).div(1_000_000))
+        .add(new Decimal(tokens.cache.read).mul(costRates.cache_read).div(1_000_000))
+        .add(new Decimal(tokens.cache.write).mul(costRates.cache_write).div(1_000_000))
         .toNumber(),
       tokens,
     }
